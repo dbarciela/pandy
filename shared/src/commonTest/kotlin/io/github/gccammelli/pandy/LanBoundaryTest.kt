@@ -193,4 +193,47 @@ class LanBoundaryTest {
         val soundCmd = printOptionCommand("45", "sound_enable", false)["print"]!!.jsonObject
         assertEquals("false", soundCmd.s("sound_enable"))
     }
+
+    @Test
+    fun amsDryingCommandsAndLanTelemetry() {
+        val startCmd = amsDryingCommand("101", 0, 55, 360, true)["print"]!!.jsonObject
+        assertEquals("ams_drying", startCmd.s("command"))
+        assertEquals("start", startCmd.s("action"))
+        assertEquals("0", startCmd.s("ams_id"))
+        assertEquals("55", startCmd.s("temp"))
+        assertEquals("360", startCmd.s("duration"))
+        assertEquals("true", startCmd.s("rotate_tray"))
+
+        val stopCmd = amsStopDryingCommand("102", 0)["print"]!!.jsonObject
+        assertEquals("ams_drying", stopCmd.s("command"))
+        assertEquals("stop", stopCmd.s("action"))
+        assertEquals("0", stopCmd.s("ams_id"))
+
+        val amsReport = """{
+            "print": {
+                "ams": {
+                    "ams": [
+                        {
+                            "id": "0",
+                            "model": "AMS 2 Pro",
+                            "hw_version": "N3F05",
+                            "is_drying": true,
+                            "remain_time": 180,
+                            "target_temp": 55,
+                            "temp": 48.0,
+                            "tray": []
+                        }
+                    ]
+                }
+            }
+        }"""
+        val amsEntities = lanEntities(config, obj(amsReport), true, null)
+            .filter { it.first.device == "ams0" }
+            .associate { it.first.key to it.second }
+
+        assertEquals("on", amsEntities.getValue("drying").state)
+        assertEquals("3.0", amsEntities.getValue("remaining_drying_time").state)
+        assertEquals("55.0", amsEntities.getValue("drying_target_temp").state)
+        assertEquals("48.0", amsEntities.getValue("ams_temp").state)
+    }
 }

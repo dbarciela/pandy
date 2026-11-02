@@ -2141,6 +2141,128 @@ class ScreenTest {
         }
     }
 
+    private fun ams2ProEvidenceDir(): java.io.File =
+        listOf(java.io.File("../docs/evidence/ams-2-pro"), java.io.File("docs/evidence/ams-2-pro"))
+            .first { it.parentFile?.exists() == true }.apply { mkdirs() }
+
+    private fun sampleAms2ProPrinter(drying: Boolean = false): Pair<Printer, AmsInfo> {
+        val baseAms = printer.info.ams.first()
+        val ams2Pro = baseAms.copy(
+            model = "AMS 2 Pro",
+            ids = baseAms.ids + mapOf(
+                "binary_sensor.drying" to "binary_sensor.drying_active",
+                "sensor.remaining_drying_time" to "sensor.drying_remaining",
+                "sensor.drying_target_temp" to "sensor.drying_target"
+            )
+        )
+        val p = variant(
+            info = printer.info.copy(ams = listOf(ams2Pro)),
+            set = arrayOf(
+                "binary_sensor.drying_active" to entity(if (drying) "on" else "off"),
+                "sensor.drying_remaining" to entity(if (drying) "4.2" else "0.0"),
+                "sensor.drying_target" to entity("55.0")
+            )
+        )
+        return p to ams2Pro
+    }
+
+    @Test fun ams2ProEvidenceDevicesScreen() {
+        val (p, _) = sampleAms2ProPrinter(drying = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("AMS 2 Pro").performScrollTo()
+        compose.waitForIdle()
+        compose.onNodeWithText("AMS 2 Pro").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(ams2ProEvidenceDir(), "devices-ams-2-pro.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun ams2ProEvidenceFilamentScreen() {
+        val (p, _) = sampleAms2ProPrinter(drying = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    FilamentScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("AMS 2 Pro").assertExists()
+        compose.onNodeWithText("Filament drying").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(ams2ProEvidenceDir(), "filament-ams-2-pro.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun ams2ProEvidenceFilamentScreenDrying() {
+        val (p, _) = sampleAms2ProPrinter(drying = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    FilamentScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("AMS 2 Pro").assertExists()
+        compose.onNodeWithText("Drying").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(ams2ProEvidenceDir(), "filament-ams-2-pro-active.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun ams2ProEvidenceDryingSheetPresets() {
+        val (p, ams) = sampleAms2ProPrinter(drying = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                        FilamentScreen(p)
+                        AmsDryingSheet(p, ams, {}) {}
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Filament Drying - AMS A").assertExists()
+        compose.onNodeWithText("Rotate spools periodically").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(ams2ProEvidenceDir(), "drying-sheet-presets.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun ams2ProEvidenceDryingSheetActive() {
+        val (p, ams) = sampleAms2ProPrinter(drying = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                        FilamentScreen(p)
+                        AmsDryingSheet(p, ams, {}) {}
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Drying in progress").assertExists()
+        compose.onNodeWithText("Stop drying").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(ams2ProEvidenceDir(), "drying-sheet-active.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
         show("Direct LAN connection") { AddDirectScreen() }
         compose.onNodeWithText("Connect",substring=false).assertIsNotEnabled()
@@ -3062,5 +3184,65 @@ class ScreenTest {
             compose.onAllNodes(isToggleable()).fetchSemanticsNodes().indices.forEach { i -> compose.onAllNodes(isToggleable())[i].performClick(); compose.waitForIdle() }
         }
         org.junit.Assert.assertTrue(compose.onAllNodes(isRoot()).fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test fun ams2ProFilamentScreenAndDryingSheetInteractCleanly() {
+        val baseAms = printer.info.ams.first()
+        val ams2Pro = baseAms.copy(
+            model = "AMS 2 Pro",
+            ids = baseAms.ids + mapOf(
+                "binary_sensor.drying" to "binary_sensor.drying_active",
+                "sensor.remaining_drying_time" to "sensor.drying_remaining",
+                "sensor.drying_target_temp" to "sensor.drying_target"
+            )
+        )
+        val ams2ProPrinter = variant(
+            info = printer.info.copy(ams = listOf(ams2Pro)),
+            set = arrayOf(
+                "binary_sensor.drying_active" to entity("off"),
+                "sensor.drying_remaining" to entity("0.0"),
+                "sensor.drying_target" to entity("55.0")
+            )
+        )
+        val dryingPrinter = variant(
+            info = printer.info.copy(ams = listOf(ams2Pro)),
+            set = arrayOf(
+                "binary_sensor.drying_active" to entity("on"),
+                "sensor.drying_remaining" to entity("3.5"),
+                "sensor.drying_target" to entity("55.0")
+            )
+        )
+
+        val mode = androidx.compose.runtime.mutableStateOf("screen")
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    when (mode.value) {
+                        "screen" -> FilamentScreen(ams2ProPrinter)
+                        "idle_sheet" -> AmsDryingSheet(ams2ProPrinter, ams2Pro, {}) {}
+                        "drying_sheet" -> AmsDryingSheet(dryingPrinter, ams2Pro, {}) {}
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("AMS 2 Pro").assertExists()
+        compose.onNodeWithText("Filament drying").assertExists()
+
+        // Test AmsDryingSheet in idle state
+        compose.runOnIdle { mode.value = "idle_sheet" }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Filament Drying - AMS A").assertExists()
+        compose.onNodeWithText("Rotate spools periodically").assertExists()
+        compose.onNodeWithText("Start drying").assertExists()
+
+        // Test AmsDryingSheet in active drying state
+        compose.runOnIdle { mode.value = "drying_sheet" }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Drying in progress").assertExists()
+        compose.onNodeWithText("Stop drying").assertExists()
     }
 }

@@ -330,14 +330,30 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
         val trays = (a["tray"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
         val isHt = ai >= 128 || a.str("model")?.contains("HT", true) == true || a.str("type")?.contains("HT", true) == true ||
             a.str("model")?.contains("N3S", true) == true || a.str("type")?.contains("N3S", true) == true
+        val isAms2Pro = a.str("model")?.contains("2 Pro", true) == true || a.str("type")?.contains("2 Pro", true) == true ||
+            a.str("model")?.contains("N3F", true) == true || a.str("type")?.contains("N3F", true) == true ||
+            a.str("hw_version")?.contains("N3F", true) == true || a.str("hw")?.contains("N3F", true) == true
         val htId = if (isHt) ai.takeIf { it >= 128 } ?: (128 + htFallback++) else ai
-        val deviceModel = if (isHt) "AMS HT" else "AMS"
-        (ams?.flag("power_on_flag") ?: a.flag("startup_read_option"))?.let { add("switch", "ams_read_on_startup", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_startup") }
-        (ams?.flag("insert_flag") ?: a.flag("tray_read_option"))?.let { add("switch", "ams_read_on_insertion", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_insertion") }
-        (ams?.flag("calibrate_remain_flag") ?: a.flag("calibrate_remain_flag"))?.let { add("switch", "ams_remaining_estimation", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_remaining_estimation") }
-        a.int("humidity")?.let { add("sensor", "humidity_index", 6 - it, device = dev, uid = "AMS_${amsIndex + 1}_humidity_index") }
-        a.int("humidity_raw")?.let { add("sensor", "humidity", it, device = dev, uid = "AMS_${amsIndex + 1}_humidity") }
-        a.dbl("temp")?.let { add("sensor", "ams_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_temperature") }
+        val deviceModel = when {
+            isHt -> "AMS HT"
+            isAms2Pro -> "AMS 2 Pro"
+            else -> "AMS"
+        }
+        (ams?.flag("power_on_flag") ?: a.flag("startup_read_option"))?.let { add("switch", "ams_read_on_startup", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_startup", deviceModel = deviceModel) }
+        (ams?.flag("insert_flag") ?: a.flag("tray_read_option"))?.let { add("switch", "ams_read_on_insertion", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_insertion", deviceModel = deviceModel) }
+        (ams?.flag("calibrate_remain_flag") ?: a.flag("calibrate_remain_flag"))?.let { add("switch", "ams_remaining_estimation", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_remaining_estimation", deviceModel = deviceModel) }
+        a.int("humidity")?.let { add("sensor", "humidity_index", 6 - it, device = dev, uid = "AMS_${amsIndex + 1}_humidity_index", deviceModel = deviceModel) }
+        a.int("humidity_raw")?.let { add("sensor", "humidity", it, device = dev, uid = "AMS_${amsIndex + 1}_humidity", deviceModel = deviceModel) }
+        a.dbl("temp")?.let { add("sensor", "ams_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_temperature", deviceModel = deviceModel) }
+        val isDrying = a.flag("is_drying") ?: a.flag("drying_status") ?: (a.int("drying_status")?.let { it != 0 }) ?: false
+        add("binary_sensor", "drying", if (isDrying) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_drying", deviceModel = deviceModel)
+        (a.dbl("remain_time") ?: a.dbl("drying_remain_time") ?: a.dbl("remaining_drying_time"))?.let {
+            val hours = if (it > 48) it / 60.0 else it
+            add("sensor", "remaining_drying_time", hours, device = dev, uid = "AMS_${amsIndex + 1}_remaining_drying_time", deviceModel = deviceModel)
+        }
+        (a.dbl("target_temp") ?: a.dbl("drying_temp"))?.let {
+            add("sensor", "drying_target_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_drying_target_temp", deviceModel = deviceModel)
+        }
         (0 until if (deviceModel == "AMS HT") 1 else 4).forEach { ti ->
             val t = trays.firstOrNull { it.int("id") == ti } ?: JsonObject(emptyMap())
             val type = t.str("tray_type").orEmpty()
@@ -433,6 +449,17 @@ fun printCacheCommand(sequenceId: String, enable: Boolean) = systemCommand(seque
 fun amsUserSettingCommand(sequenceId: String, amsId: Int, startup: Boolean, insertion: Boolean, remaining: Boolean) =
     printCommand(sequenceId, "ams_user_setting", buildJsonObject {
         put("ams_id", amsId); put("startup_read_option", startup); put("tray_read_option", insertion); put("calibrate_remain_flag", remaining)
+    })
+
+fun amsDryingCommand(sequenceId: String, amsId: Int, temp: Int, durationMinutes: Int, rotateTray: Boolean) =
+    printCommand(sequenceId, "ams_drying", buildJsonObject {
+        put("ams_id", amsId); put("temp", temp); put("duration", durationMinutes)
+        put("rotate_tray", rotateTray); put("action", "start")
+    })
+
+fun amsStopDryingCommand(sequenceId: String, amsId: Int) =
+    printCommand(sequenceId, "ams_drying", buildJsonObject {
+        put("ams_id", amsId); put("action", "stop")
     })
 
 /** The printer reached directly, presented as a small Home Assistant (see the file comment). */
@@ -806,6 +833,17 @@ class DirectPrinter(
             "bambu_lab/print_cache_set" -> publish(printCacheCommand(nextSeq(), d.s("config")?.toBooleanStrictOrNull() ?: (d.s("enable") == "true")))
             "bambu_lab/ams_user_setting" -> publish(amsUserSettingCommand(nextSeq(), d.s("ams_id")?.toIntOrNull() ?: 0,
                 d.s("startup_read_option") == "true", d.s("tray_read_option") == "true", d.s("calibrate_remain_flag") == "true"))
+            "bambu_lab/start_filament_drying" -> {
+                val amsId = d.s("ams_id")?.toIntOrNull() ?: 0
+                val temp = d.s("temp")?.toIntOrNull() ?: 50
+                val durationHours = d.s("duration")?.toIntOrNull() ?: 4
+                val rotateTray = d.s("rotate_tray") != "false"
+                publish(amsDryingCommand(nextSeq(), amsId, temp, durationHours * 60, rotateTray))
+            }
+            "bambu_lab/stop_filament_drying" -> {
+                val amsId = d.s("ams_id")?.toIntOrNull() ?: 0
+                publish(amsStopDryingCommand(nextSeq(), amsId))
+            }
             "switch/turn_on", "switch/turn_off" -> {} // live view is always available directly
             "homeassistant/update_entity" -> publish(buildJsonObject { putJsonObject("pushing") { put("sequence_id", nextSeq()); put("command", "pushall") } })
             else -> throw ApiException("Needs Home Assistant")

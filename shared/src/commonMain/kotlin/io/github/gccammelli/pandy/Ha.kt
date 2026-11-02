@@ -256,6 +256,8 @@ fun printersFrom(devs: JsonArray, ents: JsonArray): List<PrinterInfo> {
         val eid = r.s("entity_id") ?: return@mapNotNull null
         val u = r.s("unique_id")
         val key = r.s("translation_key")
+            ?: (if (u != null && u.contains("remaining_drying_time")) "remaining_drying_time" else null)
+            ?: (if (u != null && u.endsWith("_drying")) "drying" else null)
             ?: (if (serial != null && u != null && u.startsWith("${serial}_")) u.removePrefix("${serial}_") else null)
             ?: u?.substringAfterLast('_')
             ?: return@mapNotNull null
@@ -357,6 +359,9 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     fun amsTemp(a: AmsInfo) = a.ids["sensor.ams_temp"]?.let { states[it] }?.celsius
     /** A boolean setting exposed by an AMS; null means this firmware/integration did not report it. */
     fun amsFlag(a: AmsInfo, key: String): Boolean? = a.ids["switch.$key"]?.let { id -> states[id]?.flag }
+    fun amsIsDrying(a: AmsInfo): Boolean = a.ids["binary_sensor.drying"]?.let { states[it]?.on } ?: false
+    fun amsDryingRemaining(a: AmsInfo): Double? = a.ids["sensor.remaining_drying_time"]?.let { states[it]?.num }
+    fun amsDryingTargetTemp(a: AmsInfo): Double? = a.ids["sensor.drying_target_temp"]?.let { states[it]?.num }
     fun flag(key: String): Boolean? = get("switch.$key")?.flag
     fun flagAttribute(key: String, attribute: String): Boolean? = get("switch.$key")?.attrs?.s(attribute)?.let(::parseFlag)
 
@@ -470,6 +475,33 @@ fun Printer.setAmsSettings(amsId: Int, startup: Boolean, insertion: Boolean, rem
     })
 }
 
+suspend fun HaBackend.startAmsDrying(p: Printer, a: AmsInfo, temp: Int, durationHours: Int, rotateTray: Boolean) {
+    val data = buildJsonObject {
+        put("device_id", a.haId.ifBlank { p.info.haId })
+        put("ams_id", a.amsId())
+        put("temp", temp)
+        put("duration", durationHours)
+        put("rotate_tray", rotateTray)
+    }
+    call("bambu_lab", "start_filament_drying", data)
+}
+
+suspend fun HaBackend.stopAmsDrying(p: Printer, a: AmsInfo) {
+    val data = buildJsonObject {
+        put("device_id", a.haId.ifBlank { p.info.haId })
+        put("ams_id", a.amsId())
+    }
+    call("bambu_lab", "stop_filament_drying", data)
+}
+
+fun Printer.startAmsDrying(a: AmsInfo, temp: Int, durationHours: Int, rotateTray: Boolean, err: (String) -> Unit) = Repo.act(err) {
+    startAmsDrying(this@startAmsDrying, a, temp, durationHours, rotateTray)
+}
+
+fun Printer.stopAmsDrying(a: AmsInfo, err: (String) -> Unit) = Repo.act(err) {
+    stopAmsDrying(this@stopAmsDrying, a)
+}
+
 /** An HLS address for a camera, from Home Assistant's own streaming (valid while it's being watched). */
 suspend fun HaBackend.hlsUrl(cameraId: String): String {
     val r = ws(listOf(buildJsonObject { put("type", "camera/stream"); put("entity_id", cameraId); put("format", "hls") })).first() as? JsonObject
@@ -565,6 +597,15 @@ fun filamentKey(type: String, colour: String) = "${type.trim().uppercase()}|${he
 
 /** The absolute tray ID used by the printer protocol: standard AMS 0–103, AMS HT 128–135. */
 fun AmsInfo.isSingleSlot() = model.contains("HT", ignoreCase = true) || model.contains("N3S", ignoreCase = true) || protocolId?.let { it >= 128 } == true
+fun AmsInfo.isAms2Pro() = model.contains("2 Pro", ignoreCase = true) || model.contains("N3F", ignoreCase = true) || model.contains("AMS 2", ignoreCase = true)
+fun AmsInfo.supportsDrying() = isAms2Pro() || isSingleSlot()
+fun AmsInfo.displayName() = if (isSingleSlot()) "AMS HT" else "AMS ${'A' + index - 1}"
+fun AmsInfo.modelBadge(): String? = when {
+    isAms2Pro() -> "AMS 2 Pro"
+    isSingleSlot() -> "AMS HT"
+    model.contains("Lite", ignoreCase = true) -> "AMS Lite"
+    else -> null
+}
 
 /** The protocol's AMS unit ID; unlike [index], HT units start at 128. */
 fun AmsInfo.amsId(): Int = protocolId?.takeIf { !isSingleSlot() || it >= 128 } ?: if (isSingleSlot()) 128 else index - 1
