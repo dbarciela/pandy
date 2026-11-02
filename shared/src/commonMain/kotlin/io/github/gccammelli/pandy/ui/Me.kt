@@ -314,6 +314,8 @@ fun SettingsScreen() {
     val pl = LocalPlatform.current
     var timelapseDefault by remember { mutableStateOf(Repo.timelapseDefault) }
     var showUnavailable by remember { mutableStateOf(Repo.showUnavailable) }
+    var configureDemo by remember { mutableStateOf(false) }
+    if (configureDemo) DemoConfigDialog { configureDemo = false }
     Page("Settings", { Nav.back() }) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(14.dp)) {
             T("Appearance", 13.sp, C.Sub, modifier = Modifier.padding(start = 6.dp, bottom = 6.dp))
@@ -372,6 +374,7 @@ fun SettingsScreen() {
                     if (Repo.direct && Repo.haUrl != null) NavRow("Remove Home Assistant", labelColor = C.Red, chevron = false) { Repo.removeHa(); Nav.back() }
                 }
                 if (!Repo.demo) NavRow("Slicer for model prints", value = Repo.slicerUrl ?: if (Repo.haApi != null) "Home Assistant add-on" else "Set up") { Nav.go(Screen.Slicer) }
+                if (Repo.demo) NavRow("Configure demo", chevron = false) { configureDemo = true }
                 NavRow(if (Repo.demo) "Leave the demo" else "Disconnect", labelColor = C.Red, chevron = false) { Nav.stack.clear(); Repo.logout() }
             }
         }

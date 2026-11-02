@@ -90,20 +90,20 @@ fun DevicesTab(st: UiState, p: Printer) {
 }
 
 @Composable
-fun DemoNote() {
-    var configure by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)).background(C.AccentBg).padding(12.dp)) {
-        T("Demo: a pretend printer. Every control works on it. To connect yours: Me › Settings › Leave the demo.", 13.sp, C.Text, lh = 18.sp)
-        TextButton(onClick = { configure = true }) { T("Configure demo", 13.sp, C.Accent) }
-    }
-    if (configure) {
+fun DemoNote() = Box(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)).background(C.AccentBg).padding(12.dp)) {
+    T("Demo: a pretend printer. Every control works on it. To connect yours: Me › Settings › Leave the demo.", 13.sp, C.Text, lh = 18.sp)
+}
+
+/** Picks the demo printer's model and AMS setup (Me › Settings › Configure demo). */
+@Composable
+fun DemoConfigDialog(onClose: () -> Unit) {
         val models = listOf("X1C", "X1", "X1E", "P1P", "P1S", "P2S", "A1", "A1 mini", "H2D", "H2S")
         val types = listOf("AMS", "AMS 2 Pro", "AMS Lite", "AMS HT")
         var model by remember { mutableStateOf(Repo.demoConfig.model) }
         var count by remember { mutableStateOf(Repo.demoConfig.amsCount) }
         var type by remember { mutableStateOf(Repo.demoConfig.amsType) }
         var htCount by remember { mutableStateOf(Repo.demoConfig.htCount) }
-        AlertDialog(onDismissRequest = { configure = false }, title = { T("Configure demo", 18.sp, weight = FontWeight.Bold) }, text = {
+        AlertDialog(onDismissRequest = { onClose() }, title = { T("Configure demo", 18.sp, weight = FontWeight.Bold) }, text = {
             Column {
                 T("Tap a value to change it.", 13.sp, C.Sub)
                 TextButton(onClick = { model = models[(models.indexOf(model) + 1) % models.size] }) { T("Printer: $model", 15.sp) }
@@ -111,9 +111,8 @@ fun DemoNote() {
                 TextButton(onClick = { type = types[(types.indexOf(type) + 1) % types.size]; if (type == "AMS HT") htCount = minOf(htCount, 8 - count) }) { T("Type: $type", 15.sp) }
                 TextButton(onClick = { htCount = (htCount + 1) % (if (type == "AMS HT") 9 - count else 9) }) { T("Additional AMS HT: $htCount", 15.sp) }
             }
-        }, confirmButton = { TextButton(onClick = { Repo.startDebugDemo(DemoConfig(model, count, type, htCount)); configure = false }) { T("Apply", 14.sp) } },
-            dismissButton = { TextButton(onClick = { configure = false }) { T("Cancel", 14.sp) } })
-    }
+        }, confirmButton = { TextButton(onClick = { Repo.startDebugDemo(DemoConfig(model, count, type, htCount)); onClose() }) { T("Apply", 14.sp) } },
+            dismissButton = { TextButton(onClick = { onClose() }) { T("Cancel", 14.sp) } })
 }
 
 /**
