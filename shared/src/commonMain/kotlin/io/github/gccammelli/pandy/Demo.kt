@@ -287,8 +287,16 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             "bambu_lab/xcam_control_set" -> d.s("module_name")?.let { module ->
                 rows.firstOrNull { it.device == dev && it.key == module }?.let { setById(id(it), if (d.s("enable") == "true") "on" else "off") }
             }
-            "bambu_lab/print_option" -> listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable")
-                .firstOrNull { d[it] != null }?.let { option -> d.s(option)?.let { value -> rows.firstOrNull { it.key == option }?.let { setById(id(it), if (value == "true") "on" else "off") } } }
+            "bambu_lab/print_option" -> listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable", "prompt_sound")
+                .firstOrNull { d[it] != null }?.let { option -> d.s(option)?.let { value -> rows.firstOrNull { it.key == option || (option == "sound_enable" && it.key == "prompt_sound") || (option == "prompt_sound" && it.key == "sound_enable") }?.let { setById(id(it), if (value == "true") "on" else "off") } } }
+            "bambu_lab/set_door_stat" -> {
+                val on = d.s("config")?.let { it != "0" } ?: (d.s("enable") == "true")
+                rows.firstOrNull { it.key == "door_open_check" }?.let { setById(id(it), if (on) "on" else "off") }
+            }
+            "bambu_lab/print_cache_set" -> {
+                val on = d.s("config")?.let { it == "true" } ?: (d.s("enable") == "true")
+                rows.firstOrNull { it.key == "print_cache" }?.let { setById(id(it), if (on) "on" else "off") }
+            }
             "bambu_lab/ams_user_setting" -> {
                 val ams = d.s("ams_id")?.toIntOrNull() ?: 0
                 listOf("ams_read_on_startup" to "startup_read_option", "ams_read_on_insertion" to "tray_read_option", "ams_remaining_estimation" to "calibrate_remain_flag")

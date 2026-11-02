@@ -59,6 +59,8 @@ import io.github.gccammelli.pandy.calibrate
 import io.github.gccammelli.pandy.decodeImage
 import io.github.gccammelli.pandy.load
 import io.github.gccammelli.pandy.setAmsSettings
+import io.github.gccammelli.pandy.setDoorCheck
+import io.github.gccammelli.pandy.setPrintCache
 import io.github.gccammelli.pandy.setPrintOption
 import io.github.gccammelli.pandy.setXcam
 import io.github.gccammelli.pandy.skip
@@ -330,17 +332,30 @@ fun PrintOptionsScreen(p: Printer) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(14.dp)) {
             T("These settings are stored by the printer. Some options are model- or firmware-specific.", 14.sp, C.Sub, lh = 19.sp, modifier = Modifier.padding(horizontal = 6.dp))
             Gap(12.dp)
-            val hasReportedOptions = listOf("printing_monitor", "buildplate_marker_detector", "first_layer_inspector", "auto_recovery").any { p.flag(it) != null }
+            val hasReportedOptions = listOf(
+                "printing_monitor", "buildplate_marker_detector", "first_layer_inspector", "auto_recovery",
+                "plate_offset_switch", "fod_check", "model_movement_check", "filament_tangle_detect",
+                "nozzle_blob_detect", "prompt_sound"
+            ).any { p.flag(it) != null }
             if (Repo.showUnavailable || canSend && hasReportedOptions) Group {
-                    PrinterFlagToggle(p, "AI Print Monitoring", "printing_monitor", canSend) { next, revert -> p.setXcam("printing_monitor", next, p.flagAttribute("printing_monitor", "print_halt") ?: false) { message -> revert(); err(message) } }
-                    PrinterFlagToggle(p, "Build Plate Detection", "buildplate_marker_detector", canSend) { next, revert -> p.setXcam("buildplate_marker_detector", next, p.flagAttribute("buildplate_marker_detector", "print_halt") ?: false) { message -> revert(); err(message) } }
-                    PrinterFlagToggle(p, "First Layer Inspection", "first_layer_inspector", canSend) { next, revert -> p.setXcam("first_layer_inspector", next, p.flagAttribute("first_layer_inspector", "print_halt") ?: false) { message -> revert(); err(message) } }
-                    PrinterFlagToggle(p, "Auto-Recover from Step Loss", "auto_recovery", canSend) { next, revert -> p.setPrintOption("auto_recovery", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "AI Print Monitoring", "printing_monitor", canSend) { next, revert -> p.setXcam("printing_monitor", next, p.flagAttribute("printing_monitor", "print_halt") ?: false) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Build Plate Detection", "buildplate_marker_detector", canSend) { next, revert -> p.setXcam("buildplate_marker_detector", next, p.flagAttribute("buildplate_marker_detector", "print_halt") ?: false) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "First Layer Inspection", "first_layer_inspector", canSend) { next, revert -> p.setXcam("first_layer_inspector", next, p.flagAttribute("first_layer_inspector", "print_halt") ?: false) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Auto-Recover from Step Loss", "auto_recovery", canSend) { next, revert -> p.setPrintOption("auto_recovery", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Build Plate Alignment", "plate_offset_switch", canSend) { next, revert -> p.setXcam("plate_offset_switch", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Foreign Object Detection", "fod_check", canSend) { next, revert -> p.setXcam("fod_check", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Model Movement Detection", "model_movement_check", canSend) { next, revert -> p.setXcam("model_movement_check", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Filament Tangle Detection", "filament_tangle_detect", canSend) { next, revert -> p.setPrintOption("filament_tangle_detect", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Nozzle Blob Detection", "nozzle_blob_detect", canSend) { next, revert -> p.setPrintOption("nozzle_blob_detect", next) { message -> revert(); err(message) } }
+                PrinterFlagToggle(p, "Prompt Sound", "prompt_sound", canSend) { next, revert -> p.setPrintOption("prompt_sound", next) { message -> revert(); err(message) } }
+            }
+            val hasSystemOptions = listOf("door_open_check", "print_cache").any { p.flag(it) != null }
+            if (Repo.showUnavailable || canSend && hasSystemOptions) {
+                Gap(12.dp)
+                Group {
+                    PrinterFlagToggle(p, "Open Door Detection", "door_open_check", canSend) { next, revert -> p.setDoorCheck(next) { message -> revert(); err(message) } }
+                    PrinterFlagToggle(p, "Store Sent Files on External Storage", "print_cache", canSend) { next, revert -> p.setPrintCache(next) { message -> revert(); err(message) } }
                 }
-            Gap(12.dp)
-            if (Repo.showUnavailable) Group {
-                NavRow("Open Door Detection", value = "Not available", labelColor = C.Sub, chevron = false)
-                NavRow("Store Sent Files on External Storage", value = "Not available", labelColor = C.Sub, chevron = false)
             }
             Gap(12.dp)
             T(if (!canSend) "Home Assistant does not expose these printer settings; direct LAN or demo mode is required." else "Only switches reported by this printer are enabled. Unsupported firmware options stay read-only.", 12.sp, C.Sub, lh = 17.sp, modifier = Modifier.padding(horizontal = 6.dp))

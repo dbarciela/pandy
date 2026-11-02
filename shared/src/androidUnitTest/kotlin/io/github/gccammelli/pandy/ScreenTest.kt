@@ -1803,6 +1803,50 @@ class ScreenTest {
         }
     }
 
+    @Test fun x2dPrintOptionsScreenShowsModernAiModulesAndTogglesOptions() {
+        val extraKeys = listOf("plate_offset_switch", "fod_check", "model_movement_check", "filament_tangle_detect", "nozzle_blob_detect", "prompt_sound", "door_open_check", "print_cache")
+        val ids = printer.info.ids.toMutableMap()
+        val states = snapshot.toMutableMap()
+        extraKeys.forEach { key ->
+            val entityId = "switch.pandy_testserial_$key"
+            ids["switch.$key"] = entityId
+            states[entityId] = Entity(entityId, "on", JsonObject(emptyMap()))
+        }
+        val doorId = "binary_sensor.pandy_testserial_door_open"
+        ids["binary_sensor.door_open"] = doorId
+        states[doorId] = Entity(doorId, "on", JsonObject(emptyMap()))
+
+        val p = Printer(printer.info.copy(ids = ids), states)
+        show("Print Options") { PrintOptionsScreen(p) }
+
+        compose.onNodeWithText("Build Plate Alignment").performScrollTo().assertExists()
+        compose.onNodeWithText("Foreign Object Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Model Movement Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Filament Tangle Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Nozzle Blob Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Prompt Sound").performScrollTo().assertExists()
+        compose.onNodeWithText("Open Door Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Store Sent Files on External Storage").performScrollTo().assertExists()
+
+        // Toggling door_open_check sends set_door_stat
+        val before = commands.size
+        compose.onAllNodes(isToggleable())[10].performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.size > before }
+        val (path, text) = commands.last()
+        val body = json.parseToJsonElement(text).jsonObject
+        org.junit.Assert.assertTrue(path.endsWith("set_door_stat"))
+        assertEquals("false", body.s("enable"))
+
+        // Toggling print_cache sends print_cache_set
+        val before2 = commands.size
+        compose.onAllNodes(isToggleable())[11].performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.size > before2 }
+        val (path2, text2) = commands.last()
+        val body2 = json.parseToJsonElement(text2).jsonObject
+        org.junit.Assert.assertTrue(path2.endsWith("print_cache_set"))
+        assertEquals("false", body2.s("enable"))
+    }
+
     @Test fun amsReadPreferencesSendAllThreeFlagsAndRestoreRejectedChanges() {
         val ams=printer.info.ams.first()
         val keys=listOf("ams_read_on_insertion","ams_read_on_startup","ams_remaining_estimation")
@@ -1967,7 +2011,7 @@ class ScreenTest {
         compose.onNodeWithText("45°C").assertExists()
     }
 
-    private fun sampleX2DPrinter(): Printer {
+    private fun sampleX2DPrinter(doorOpen: Boolean? = null): Printer {
         val extraIds = mapOf(
             "sensor.printer_name" to "sensor.printer_name",
             "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
@@ -1981,9 +2025,12 @@ class ScreenTest {
             "sensor.active_nozzle" to "sensor.active_nozzle"
         )
         val info = printer.info.copy(name = "My X2D", model = "X2D", ids = printer.info.ids + extraIds)
+        val doorSet = if (doorOpen != null) listOf("binary_sensor.door_open" to entity(if (doorOpen) "on" else "off")) else emptyList()
+        val removeList = if (doorOpen == null) listOf("binary_sensor.door_open") else emptyList()
         return variant(
             info = info,
-            set = arrayOf(
+            remove = removeList,
+            set = (listOf(
                 "sensor.printer_name" to entity("My X2D"),
                 "sensor.print_status" to entity("idle"),
                 "sensor.left_nozzle_temp" to entity("15.0"),
@@ -1999,12 +2046,16 @@ class ScreenTest {
                 "sensor.left_nozzle_type" to entity("hardened_steel"),
                 "sensor.right_nozzle_type" to entity("hardened_steel"),
                 "sensor.active_nozzle" to entity("right")
-            )
+            ) + doorSet).toTypedArray()
         )
     }
 
     private fun evidenceDir(): java.io.File =
         listOf(java.io.File("../docs/evidence/dual-nozzle"), java.io.File("docs/evidence/dual-nozzle"))
+            .first { it.parentFile?.exists() == true }.apply { mkdirs() }
+
+    private fun doorEvidenceDir(): java.io.File =
+        listOf(java.io.File("../docs/evidence/door-status"), java.io.File("docs/evidence/door-status"))
             .first { it.parentFile?.exists() == true }.apply { mkdirs() }
 
     @Test fun dualNozzleEvidenceDevicesScreen() {
@@ -2035,6 +2086,57 @@ class ScreenTest {
         compose.waitForIdle()
         val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
         java.io.FileOutputStream(java.io.File(evidenceDir(), "control-screen.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun doorEvidenceDevicesScreenClosed() {
+        val p = sampleX2DPrinter(doorOpen = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door closed").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(doorEvidenceDir(), "devices-door-closed.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun doorEvidenceDevicesScreenOpen() {
+        val p = sampleX2DPrinter(doorOpen = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door open").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(doorEvidenceDir(), "devices-door-open.png")).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    @Test fun doorEvidenceControlScreenOpen() {
+        val p = sampleX2DPrinter(doorOpen = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    ControlScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door open").assertExists()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        java.io.FileOutputStream(java.io.File(doorEvidenceDir(), "control-door-open.png")).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
     }
