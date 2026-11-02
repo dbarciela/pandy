@@ -216,7 +216,7 @@ jobs:
   discord:
     name: Announce release in Discord
     needs: release
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success' && vars.PANDY_RELEASE_ANNOUNCEMENTS != 'false' && secrets.DISCORD_BOT_TOKEN != ''
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success' && vars.PANDY_RELEASE_ANNOUNCEMENTS != 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Post release
@@ -226,8 +226,10 @@ jobs:
           RELEASE_NAME: ${{ github.event.repository.name }}
           RELEASE_URL: "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
         run: |
-          [ -n "$DISCORD_BOT_TOKEN" ] || { echo "::error::Missing DISCORD_BOT_TOKEN repository secret"; exit 1; }
-          [ -n "$DISCORD_RELEASE_CHANNEL_ID" ] || { echo "::error::Missing DISCORD_RELEASE_CHANNEL_ID repository secret"; exit 1; }
+          if [ -z "$DISCORD_BOT_TOKEN" ] || [ -z "$DISCORD_RELEASE_CHANNEL_ID" ]; then
+            echo "Discord bot token or channel ID not configured, skipping announcement."
+            exit 0
+          fi
           payload=$(jq -n --arg content "$RELEASE_NAME $GITHUB_REF_NAME is released: $RELEASE_URL" '{content: $content}')
           curl --fail-with-body --retry 2 --retry-all-errors \
             -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
