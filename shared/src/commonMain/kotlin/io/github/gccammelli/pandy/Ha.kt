@@ -318,6 +318,10 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     val speed get() = state("select.printing_speed") ?: state("sensor.speed_profile")
     val nozzle get() = get("sensor.nozzle_temp")?.celsius
     val nozzleTarget get() = get("sensor.target_nozzle_temp")?.celsius
+    val rightNozzle get() = get("sensor.right_nozzle_temp")?.celsius
+    val rightNozzleTarget get() = get("sensor.right_target_nozzle_temp")?.celsius
+    val leftNozzle get() = get("sensor.left_nozzle_temp")?.celsius
+    val leftNozzleTarget get() = get("sensor.left_target_nozzle_temp")?.celsius
     val bed get() = get("sensor.bed_temp")?.celsius
     val bedTarget get() = get("sensor.target_bed_temp")?.celsius
     val chamber get() = get("sensor.chamber_temp")?.celsius
@@ -539,6 +543,16 @@ fun buildPlateLabel(value: String?) = when (value?.lowercase()) {
 fun filamentKey(type: String, colour: String) = "${type.trim().uppercase()}|${hexColor(colour).toString(16)}"
 
 /** The absolute tray ID used by the printer protocol: standard AMS 0–103, AMS HT 128–135. */
+fun AmsInfo.displayName(): String {
+    val label = when {
+        isSingleSlot() -> "AMS HT"
+        model.contains("2 Pro", true) || model.contains("N3F", true) -> "AMS 2 Pro"
+        model.contains("Lite", true) || model.contains("F1", true) -> "AMS Lite"
+        else -> "AMS"
+    }
+    return "$label ${'A' + index - 1}"
+}
+
 fun AmsInfo.isSingleSlot() = model.contains("HT", ignoreCase = true) || model.contains("N3S", ignoreCase = true) || protocolId?.let { it >= 128 } == true
 
 /** The protocol's AMS unit ID; unlike [index], HT units start at 128. */

@@ -49,7 +49,10 @@ object Repo {
     /** Home Assistant's token as an HTTP header, for players and downloads that fetch from it directly. */
     fun authHeaders(): Map<String, String> = token?.let { mapOf("Authorization" to "Bearer $it") }.orEmpty()
     val haUrl get() = store.settings.getString("ha_url")
-    val demo get() = store.settings.getString("demo") == "true"
+    private var debugDemo = false
+    var demoConfig = DemoConfig()
+        private set
+    val demo get() = debugDemo || store.settings.getString("demo") == "true"
     /** Whether the one-time tip about switching model sites (tap the Models tab again) was shown and closed. */
     val modelsTipSeen get() = store.settings.getString("models_tip") == "seen"
     fun seeModelsTip() = store.settings.putString("models_tip", "seen")
@@ -223,6 +226,16 @@ object Repo {
         remaining.firstOrNull()?.let { switchDirectPrinter(it.serial) }
     }
 
+    /** A temporary demo for debug launches; does not overwrite saved connection settings. */
+    fun startDebugDemo(config: DemoConfig) {
+        stop()
+        debugDemo = true
+        demoConfig = config
+        ha = FakeHomeAssistant(config); extras = ha
+        state.value = UiState(on = true)
+        start()
+    }
+
     fun startDemo() {
         store.settings.putString("demo", "true")
         ha = FakeHomeAssistant(); extras = ha
@@ -231,6 +244,7 @@ object Repo {
     }
 
     fun logout() {
+        debugDemo = false
         stop()
         directBackend?.stop(); directBackend = null
         directPrinters.forEach { store.secrets.set("lan_code_${it.serial}", null) }

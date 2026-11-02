@@ -52,13 +52,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.gccammelli.pandy.DemoConfig
 import io.github.gccammelli.pandy.LocalPlatform
 import io.github.gccammelli.pandy.Printer
 import io.github.gccammelli.pandy.Repo
 import io.github.gccammelli.pandy.Spool
 import io.github.gccammelli.pandy.UiState
 import io.github.gccammelli.pandy.button
-import io.github.gccammelli.pandy.isSingleSlot
+import io.github.gccammelli.pandy.displayName
 import io.github.gccammelli.pandy.light
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -71,6 +72,7 @@ fun DevicesTab(st: UiState, p: Printer) {
             if (Repo.demo) DemoNote()
             if (p.online && p.controlBlocked) ControlBlockedNote()
             Hero(p)
+            if (p.ams.isNotEmpty()) AmsOverview(p)
             Gap(12.dp)
             PrintCard(p, err)
             SectionHead("Device Control") { Nav.go(Screen.Control) }
@@ -88,8 +90,30 @@ fun DevicesTab(st: UiState, p: Printer) {
 }
 
 @Composable
-fun DemoNote() = Box(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)).background(C.AccentBg).padding(12.dp)) {
-    T("Demo: a pretend printer. Every control works on it. To connect yours: Me › Settings › Leave the demo.", 13.sp, C.Text, lh = 18.sp)
+fun DemoNote() {
+    var configure by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)).background(C.AccentBg).padding(12.dp)) {
+        T("Demo: a pretend printer. Every control works on it. To connect yours: Me › Settings › Leave the demo.", 13.sp, C.Text, lh = 18.sp)
+        TextButton(onClick = { configure = true }) { T("Configure demo", 13.sp, C.Accent) }
+    }
+    if (configure) {
+        val models = listOf("X1C", "X1", "X1E", "P1P", "P1S", "P2S", "A1", "A1 mini", "H2D", "H2S")
+        val types = listOf("AMS", "AMS 2 Pro", "AMS Lite", "AMS HT")
+        var model by remember { mutableStateOf(Repo.demoConfig.model) }
+        var count by remember { mutableStateOf(Repo.demoConfig.amsCount) }
+        var type by remember { mutableStateOf(Repo.demoConfig.amsType) }
+        var htCount by remember { mutableStateOf(Repo.demoConfig.htCount) }
+        AlertDialog(onDismissRequest = { configure = false }, title = { T("Configure demo", 18.sp, weight = FontWeight.Bold) }, text = {
+            Column {
+                T("Tap a value to change it.", 13.sp, C.Sub)
+                TextButton(onClick = { model = models[(models.indexOf(model) + 1) % models.size] }) { T("Printer: $model", 15.sp) }
+                TextButton(onClick = { count = (count + 1) % 5; if (type == "AMS HT") htCount = minOf(htCount, 8 - count) }) { T("AMS units: $count", 15.sp) }
+                TextButton(onClick = { type = types[(types.indexOf(type) + 1) % types.size]; if (type == "AMS HT") htCount = minOf(htCount, 8 - count) }) { T("Type: $type", 15.sp) }
+                TextButton(onClick = { htCount = (htCount + 1) % (if (type == "AMS HT") 9 - count else 9) }) { T("Additional AMS HT: $htCount", 15.sp) }
+            }
+        }, confirmButton = { TextButton(onClick = { Repo.startDebugDemo(DemoConfig(model, count, type, htCount)); configure = false }) { T("Apply", 14.sp) } },
+            dismissButton = { TextButton(onClick = { configure = false }) { T("Cancel", 14.sp) } })
+    }
 }
 
 /**
@@ -194,16 +218,28 @@ private fun Hero(p: Printer) {
 
 @Composable
 private fun PrinterPage(p: Printer) = Box(Modifier.fillMaxSize().background(C.Card).padding(10.dp)) {
-    val amsColors = p.ams.firstOrNull()?.second.orEmpty().map { Color(if (it?.known == true) it.color else 0xFFDDDDDD) }
-    PrinterArt(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 4.dp), ams = p.info.ams.isNotEmpty(), lit = p.lightOn, amsColors = amsColors)
+    PrinterArt(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 4.dp), ams = p.info.ams.isNotEmpty(), lit = p.lightOn)
     TempChip(Icons.Outlined.Settings, "nozzle", p.nozzle, p.nozzleTarget, Modifier.align(Alignment.TopStart))
     if (p.chamber != null) TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
     TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
-    p.ams.firstOrNull()?.let { (a, _) ->
-        p.amsNum(a, "sensor.humidity_index")?.let { h ->
-            Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
-                Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+
+}
+
+@Composable
+private fun AmsOverview(p: Printer) {
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        p.ams.forEach { (unit, trays) ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                T(unit.displayName(), 12.sp, C.Sub, modifier = Modifier.weight(1f))
+                trays.forEach { spool ->
+                    Box(Modifier.padding(horizontal = 2.dp).size(14.dp).clip(CircleShape)
+                        .background(Color(if (spool?.known == true) spool.color else 0xFFDDDDDD)))
+                }
+                p.amsNum(unit, "sensor.humidity_index")?.let { h ->
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
+                    T(" ${h.toInt()}", 12.sp, C.Sub)
+                }
             }
         }
     }
@@ -348,7 +384,16 @@ fun NozzleCard(p: Printer, modifier: Modifier = Modifier, onClick: () -> Unit) =
         T("Nozzle & Extruder", 13.sp, C.Sub, modifier = Modifier.weight(1f))
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = C.Faint)
     }
-    Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
+    if (p.leftNozzle != null || p.rightNozzle != null) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            listOf(Triple("Left", p.leftNozzle, p.leftNozzleTarget), Triple("Right", p.rightNozzle, p.rightNozzleTarget)).forEach { (side, now, target) ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    T(side, 12.sp, C.Sub)
+                    T("${now?.toInt() ?: "--"} / ${target?.toInt() ?: "--"}°C", 19.sp, tempColor(now, target), FontWeight.Bold)
+                }
+            }
+        }
+    } else Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 T(p.nozzle?.toInt()?.toString() ?: "--", 26.sp, tempColor(p.nozzle, p.nozzleTarget), FontWeight.Bold)
@@ -403,7 +448,7 @@ private fun FilamentCard(p: Printer, onClick: () -> Unit) = Card(padding = andro
     if (p.ams.isEmpty() && p.external.isEmpty()) { T("No AMS or external spool in Home Assistant", 13.sp, C.Sub); return@Card }
     p.ams.forEach { (a, trays) ->
         Row(verticalAlignment = Alignment.CenterVertically) {
-            T(if (a.isSingleSlot()) "AMS HT" else "AMS ${'A' + a.index - 1}", 13.sp, C.Sub, modifier = Modifier.weight(1f))
+            T(a.displayName(), 13.sp, C.Sub, modifier = Modifier.weight(1f))
             p.amsNum(a, "sensor.humidity_index")?.let { h ->
                 Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
                 T(" ${h.toInt()}", 12.sp, C.Sub)
@@ -413,6 +458,7 @@ private fun FilamentCard(p: Printer, onClick: () -> Unit) = Card(padding = andro
         Gap(8.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             trays.forEachIndexed { i, s -> SlotTile(s, "${'A' + a.index - 1}${i + 1}", Modifier.weight(1f)) }
+            repeat((4 - trays.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
         }
         Gap(12.dp)
     }

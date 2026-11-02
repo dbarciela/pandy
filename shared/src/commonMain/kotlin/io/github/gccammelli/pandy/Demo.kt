@@ -23,12 +23,25 @@ import kotlin.time.Clock
  * It answers the same API calls as the real one, and its state reacts to every control (light, temperatures, fans,
  * speed, pause, stop, skip), so every screen can be tried without a printer. Also what Pandy is developed against.
  */
+data class DemoConfig(val model: String = "X1C", val amsCount: Int = 1, val amsType: String = "AMS", val htCount: Int = 0) {
+    init {
+        require(model in listOf("X1C", "X1", "X1E", "P1P", "P1S", "P2S", "A1", "A1 mini", "H2D", "H2S"))
+        require(amsCount in 0..4)
+        require(amsType in listOf("AMS", "AMS 2 Pro", "AMS Lite", "AMS HT"))
+        require(htCount in 0..8 && (amsType != "AMS HT" || amsCount + htCount <= 8))
+    }
+}
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-class FakeHomeAssistant : HaBackend, PrinterFiles {
+class FakeHomeAssistant(private val config: DemoConfig = DemoConfig()) : HaBackend, PrinterFiles {
     override val base = "demo"
 
     private val dev = "demo_printer"
     private val amsDev = "demo_ams"
+    private fun amsDevice(index: Int) = if (index == 0) amsDev else "demo_ams_$index"
+    private fun amsType(index: Int) = if (index < config.amsCount) config.amsType else "AMS HT"
+    private fun amsProtocolId(index: Int) = if (amsType(index) == "AMS HT")
+        128 + if (config.amsType == "AMS HT") index else index - config.amsCount else index
     private val extDev = "demo_ext"
     private val prefix = "x1c_demo"
 
@@ -84,6 +97,10 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("select", "printing_speed", "standard", buildJsonObject { putJsonArray("options") { listOf("silent", "standard", "sport", "ludicrous").forEach { add(JsonPrimitive(it)) } } })
         add("sensor", "speed_profile", "standard")
         add("sensor", "nozzle_temp", 219.6); add("sensor", "target_nozzle_temp", 220)
+        if (config.model == "H2D") {
+            add("sensor", "right_nozzle_temp", 220); add("sensor", "right_target_nozzle_temp", 220)
+            add("sensor", "left_nozzle_temp", 190); add("sensor", "left_target_nozzle_temp", 200)
+        }
         add("sensor", "bed_temp", 55.0); add("sensor", "target_bed_temp", 55)
         add("sensor", "chamber_temp", 34.0)
         add("sensor", "cooling_fan_speed", 100); add("sensor", "aux_fan_speed", 70); add("sensor", "chamber_fan_speed", 0); add("sensor", "heatbreak_fan_speed", 100)
@@ -94,7 +111,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("sensor", "current_layer", 0); add("sensor", "total_layers", 312)
         add("sensor", "subtask_name", "Articulated Panda Keychain")
         add("sensor", "gcode_file", "/data/Metadata/plate_1.gcode")
-        add("sensor", "printer_name", "Demo X1C")
+        add("sensor", "printer_name", "Demo ${config.model}")
         add("sensor", "print_weight", 38.4); add("sensor", "print_length", 12.7)
         add("sensor", "print_bed_type", "textured_plate")
         add("sensor", "nozzle_diameter", 0.4); add("sensor", "nozzle_type", "hardened_steel")
@@ -106,17 +123,24 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("sensor", "sdcard_status", "normal")
         add("sensor", "active_tray", "Bambu PLA Basic")
         add("image", "cover_image", "1"); add("image", "pick_image", "1")
-        // AMS 1: four trays, slot 2 printing.
-        listOf(tray("Bambu PLA Basic", "PLA", "#FFFFFFFF", 82, slot = 1), tray("Bambu PLA Basic", "PLA", "#161616FF", 64, active = true, slot = 2),
-            tray("Bambu PETG HF", "PETG", "#00AE42FF", 25, slot = 3), tray("Empty", "", "#00000000", -1, empty = true, slot = 4))
-            .forEachIndexed { i, a -> add("sensor", "tray", if (a.s("empty") == "true") "Empty" else a.s("name")!!, a, amsDev, "AMS_1_tray_${i + 1}") }
-        add("sensor", "humidity_index", 2, device = amsDev, uid = "AMS_1_humidity_index")
-        add("sensor", "humidity", 23, device = amsDev, uid = "AMS_1_humidity")
-        add("sensor", "ams_temp", 27.0, device = amsDev, uid = "AMS_1_temperature")
-        add("switch", "ams_read_on_insertion", "on", device = amsDev, uid = "AMS_1_ams_read_on_insertion")
-        add("switch", "ams_read_on_startup", "on", device = amsDev, uid = "AMS_1_ams_read_on_startup")
-        add("switch", "ams_remaining_estimation", "on", device = amsDev, uid = "AMS_1_ams_remaining_estimation")
-        add("switch", "ams_auto_refill", "off", device = amsDev, uid = "AMS_1_ams_auto_refill")
+        repeat(config.amsCount + config.htCount) { index ->
+            val unitType = amsType(index)
+            val device = amsDevice(index)
+            val uid = "AMS_${index + 1}"
+            val sample = listOf(tray("Bambu PLA Basic", "PLA", "#FFFFFFFF", 82, active = (unitType == "AMS HT" && index == 0) || (config.model == "H2D" && index == 1), slot = 1),
+                tray("Bambu PLA Basic", "PLA", "#161616FF", 64, active = index == 0, slot = 2),
+                tray("Bambu PETG HF", "PETG", "#00AE42FF", 25, slot = 3), tray("Empty", "", "#00000000", -1, empty = true, slot = 4))
+            sample.take(if (unitType == "AMS HT") 1 else 4).forEachIndexed { i, a ->
+                add("sensor", "tray", if (a.s("empty") == "true") "Empty" else a.s("name")!!, a, device, "${uid}_tray_${i + 1}")
+            }
+            add("sensor", "humidity_index", 2 + index % 3, device = device, uid = "${uid}_humidity_index")
+            add("sensor", "humidity", 23 + index, device = device, uid = "${uid}_humidity")
+            add("sensor", "ams_temp", 27.0, device = device, uid = "${uid}_temperature")
+            listOf("ams_read_on_insertion", "ams_read_on_startup", "ams_remaining_estimation").forEach { key ->
+                add("switch", key, "on", device = device, uid = "${uid}_$key")
+            }
+            add("switch", "ams_auto_refill", "off", device = device, uid = "${uid}_ams_auto_refill")
+        }
         add("sensor", "external_spool", "Generic PLA", tray("Generic PLA", "PLA", "#F98C36FF", -1), extDev, "ExternalSpool_external_spool")
         layerFromProgress()
     }
@@ -148,8 +172,12 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             put("via_device_id", via); put("name_by_user", JsonNull)
             putJsonArray("identifiers") { add(buildJsonArray { add(JsonPrimitive("bambu_lab")); add(JsonPrimitive(ident)) }) }
         })
-        d(dev, "X1C_00M000000000000", "X1C", "00M000000000000", null)
-        d(amsDev, "X1C_00M000000000000_AMS_1", "AMS", "00M000000000000_AMS_1", dev)
+        d(dev, "Demo ${config.model}", config.model, "00M000000000000", null)
+        repeat(config.amsCount + config.htCount) { index ->
+            val protocolId = amsProtocolId(index)
+            val unitType = amsType(index)
+            d(amsDevice(index), "Demo $unitType ${index + 1}", unitType, "00M000000000000_ams$protocolId", dev)
+        }
         d(extDev, "X1C_00M000000000000_ExternalSpool", "External Spool", "00M000000000000_ExternalSpool", dev)
     }
 
@@ -210,6 +238,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             val next = now + (goal - now) * 0.3 + listOf(-.2, 0.0, .2).random()
             set("sensor", sensor, (next * 10).toInt() / 10.0)
         }
+        if (config.model == "H2D") set("sensor", "right_nozzle_temp", state("sensor", "nozzle_temp").state)
     }
 
     private fun finish(status: String) {
@@ -217,6 +246,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         set("sensor", "stage", "idle")
         set("sensor", "remaining_time", 0)
         set("number", "target_nozzle_temperature", 0); set("sensor", "target_nozzle_temp", 0)
+        if (config.model == "H2D") { set("sensor", "right_target_nozzle_temp", 0); set("sensor", "left_target_nozzle_temp", 0) }
         set("number", "target_bed_temperature", 0); set("sensor", "target_bed_temp", 0)
     }
 
@@ -245,7 +275,10 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
                 val v = d.s("value")?.toDoubleOrNull() ?: 0.0
                 setById(target!!, v.toInt())
                 when (target) {
-                    eid("number", "target_nozzle_temperature") -> set("sensor", "target_nozzle_temp", v.toInt())
+                    eid("number", "target_nozzle_temperature") -> {
+                        set("sensor", "target_nozzle_temp", v.toInt())
+                        if (config.model == "H2D") set("sensor", "right_target_nozzle_temp", v.toInt())
+                    }
                     eid("number", "target_bed_temperature") -> set("sensor", "target_bed_temp", v.toInt())
                 }
             }
@@ -292,7 +325,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             "bambu_lab/ams_user_setting" -> {
                 val ams = d.s("ams_id")?.toIntOrNull() ?: 0
                 listOf("ams_read_on_startup" to "startup_read_option", "ams_read_on_insertion" to "tray_read_option", "ams_remaining_estimation" to "calibrate_remain_flag")
-                    .forEach { (key, field) -> rows.firstOrNull { it.device == amsDev && it.key == key }?.let { setById(id(it), if (d.s(field) == "true") "on" else "off") } }
+                    .forEach { (key, field) -> rows.firstOrNull { it.device == amsDevice(if (ams >= 128) ams - 128 + if (config.amsType == "AMS HT") 0 else config.amsCount else ams) && it.key == key }?.let { setById(id(it), if (d.s(field) == "true") "on" else "off") } }
             }
             "switch/turn_on", "switch/turn_off" -> setById(target!!, if (service.endsWith("on")) "on" else "off")
             else -> {} // move_axis, extrude_retract, load/unload: nothing to show in the demo

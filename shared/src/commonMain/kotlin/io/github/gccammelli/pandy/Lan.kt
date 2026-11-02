@@ -211,6 +211,16 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     val speed = when (p.int("spd_lvl")) { 1 -> "silent"; 3 -> "sport"; 4 -> "ludicrous"; else -> "standard" }
     add("select", "printing_speed", speed, buildJsonObject { putJsonArray("options") { listOf("silent", "standard", "sport", "ludicrous").forEach { add(JsonPrimitive(it)) } } })
     add("sensor", "speed_profile", speed)
+    // The legacy temperatures describe the active nozzle; keep them for existing single-nozzle controls.
+    val extruders = (p.o("device")?.o("extruder")?.get("info") as? JsonArray).orEmpty()
+        .mapNotNull { it as? JsonObject }.filter { it.int("id") in 0..1 }
+    if (c.model.equals("H2D", true)) extruders.forEach { extruder ->
+        val side = if (extruder.int("id") == 0) "right" else "left"
+        extruder.str("temp")?.toLongOrNull()?.takeIf { it in 0..0xFFFFFFFFL }?.let { packed ->
+            add("sensor", "${side}_nozzle_temp", packed and 0xFFFF)
+            add("sensor", "${side}_target_nozzle_temp", (packed shr 16) and 0xFFFF)
+        }
+    }
     add("sensor", "nozzle_temp", p.dbl("nozzle_temper"))
     add("sensor", "target_nozzle_temp", p.dbl("nozzle_target_temper")?.toInt())
     add("sensor", "bed_temp", p.dbl("bed_temper"))
@@ -247,15 +257,27 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     // AMS units and the external spool.
     val ams = p.o("ams")
     val trayNow = ams?.str("tray_now")
+    // snow is unit << 8 | slot. A present but unknown value must not fall back to tray_now.
+    val isH2 = c.model.startsWith("H2", ignoreCase = true)
+    val snow = if (isH2) extruders.mapNotNull { it.int("snow")?.takeIf { value -> value in 0..65535 } } else emptyList()
+    val allowLegacyTray = !isH2 || (ams?.get("ams") as? JsonArray).orEmpty().size <= 1
+    val modules = (r.o("info")?.get("module") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
     var htFallback = 0
     (ams?.get("ams") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.forEachIndexed { amsIndex, a ->
         val ai = a.int("id") ?: 0
         val dev = "ams$ai"
         val trays = (a["tray"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
-        val isHt = ai >= 128 || a.str("model")?.contains("HT", true) == true || a.str("type")?.contains("HT", true) == true ||
+        val moduleName = modules.mapNotNull { it.str("name") }.firstOrNull { it.substringBefore('/') in setOf("ams", "ams_f1", "n3f", "n3s") && it.substringAfterLast('/').toIntOrNull() == ai }
+        val isHt = moduleName?.startsWith("n3s/", true) == true || ai >= 128 || a.str("model")?.contains("HT", true) == true || a.str("type")?.contains("HT", true) == true ||
             a.str("model")?.contains("N3S", true) == true || a.str("type")?.contains("N3S", true) == true
         val htId = if (isHt) ai.takeIf { it >= 128 } ?: (128 + htFallback++) else ai
-        val deviceModel = if (isHt) "AMS HT" else "AMS"
+        val declared = listOfNotNull(a.str("model"), a.str("type"), moduleName).joinToString(" ").lowercase()
+        val deviceModel = when {
+            isHt || declared.contains("n3s/") -> "AMS HT"
+            declared.contains("ams 2 pro") || declared.contains("n3f") -> "AMS 2 Pro"
+            declared.contains("ams lite") || declared.contains("ams_f1") -> "AMS Lite"
+            else -> "AMS"
+        }
         (ams?.flag("power_on_flag") ?: a.flag("startup_read_option"))?.let { add("switch", "ams_read_on_startup", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_startup") }
         (ams?.flag("insert_flag") ?: a.flag("tray_read_option"))?.let { add("switch", "ams_read_on_insertion", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_insertion") }
         (ams?.flag("calibrate_remain_flag") ?: a.flag("calibrate_remain_flag"))?.let { add("switch", "ams_remaining_estimation", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_remaining_estimation") }
@@ -267,13 +289,13 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
             val type = t.str("tray_type").orEmpty()
             val name = t.str("tray_sub_brands")?.takeIf { it.isNotBlank() }?.let { if (it.startsWith(type)) "Bambu $it" else it } ?: type
             val trayId = if (isHt) htId else ai * 4 + ti
-            add("sensor", "tray", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, trayId.toString() == trayNow, ti + 1), dev, "AMS_${amsIndex + 1}_tray_${ti + 1}", deviceModel, htId)
+            add("sensor", "tray", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, if (snow.isNotEmpty()) snow.any { (it shr 8) == htId && (it and 255) == ti } else allowLegacyTray && trayId.toString() == trayNow, ti + 1), dev, "AMS_${amsIndex + 1}_tray_${ti + 1}", deviceModel, htId)
         }
     }
     p.o("vt_tray")?.let { t ->
         val type = t.str("tray_type").orEmpty()
         val name = t.str("tray_sub_brands")?.takeIf { it.isNotBlank() } ?: type
-        add("sensor", "external_spool", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, trayNow == "254", 0), "ext", "ExternalSpool_external_spool")
+        add("sensor", "external_spool", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, if (snow.isNotEmpty()) snow.any { (it shr 8) == 255 && (it and 255) != 255 } else trayNow == "254", 0), "ext", "ExternalSpool_external_spool")
     }
     return out
 }
@@ -498,12 +520,18 @@ class DirectPrinter(
         ?.firstOrNull { it.str("name") == "ota" }?.str("sw_ver")
 
     /** Devices in the registry last handed out; when the printer reports a different set (an AMS appeared), the stream restarts. */
-    private var registered = emptySet<String>()
+    private var registered = emptySet<Triple<String, String, String>>()
+    // Images and job entities can appear while a stream is running and are delivered in that stream.
+    // Refresh only when the connected parts or the newly supported temperature entities change.
+    private fun registrySignature(rows: List<LanRow>) = rows.map { row ->
+        val observed = row.key == "tray" || row.key in setOf("left_nozzle_temp", "right_nozzle_temp", "left_target_nozzle_temp", "right_target_nozzle_temp")
+        Triple(row.device, if (observed) row.id else "", row.deviceModel)
+    }.toSet()
 
     private fun registries(): Pair<JsonArray, JsonArray> {
         val ents = entities()
         rows = ents.map { it.first }
-        registered = rows.map { it.device }.toSet()
+        registered = registrySignature(rows)
         val devices = buildJsonArray {
             fun d(id: String, model: String, ident: String, via: String?) = add(buildJsonObject {
                 put("id", "${config.serial}_$id"); put("name", if (via == null) config.model else model); put("model", model)
@@ -599,7 +627,7 @@ class DirectPrinter(
                 if (strict && link == null) throw ApiException("The direct printer connection dropped")
                 val ents = entities()
                 rows = ents.map { it.first }
-                if (rows.map { it.device }.toSet() != registered) throw ApiException("The printer's parts changed") // the caller reconnects and re-reads the registry
+                if (registrySignature(rows) != registered) throw ApiException("The printer's parts changed") // the caller reconnects and re-reads the registry
                 onEvent(buildJsonObject { putJsonObject("a") { ents.forEach { (_, e) -> put(e.id, buildJsonObject { put("s", e.state); put("a", e.attrs) }) } } })
                 delay(300) // at most ~3 updates a second
             }

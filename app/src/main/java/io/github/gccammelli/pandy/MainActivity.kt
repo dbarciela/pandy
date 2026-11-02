@@ -179,6 +179,13 @@ class MainActivity : ComponentActivity(), PlatformUi {
         // `--es notify_test 1`: shows a sample print alert.
         i?.getStringExtra("notify_test")?.let { Repo.notifier?.show("test", "Print finished", "Benchy is done on Test printer"); return }
         val name = i?.getStringExtra("screen") ?: return
+        if (i.getStringExtra("demo_model") != null) {
+            val model = i.getStringExtra("demo_model") ?: "X1C"
+            val count = i.getStringExtra("demo_ams_count")?.toIntOrNull() ?: 1
+            val type = i.getStringExtra("demo_ams_type") ?: "AMS"
+            val htCount = i.getStringExtra("demo_ht_count")?.toIntOrNull() ?: 0
+            runCatching { io.github.gccammelli.pandy.DemoConfig(model, count, type, htCount) }.getOrNull()?.let { Repo.startDebugDemo(it) }
+        }
         val screens = mapOf("control" to Screen.Control, "motion" to Screen.Motion, "skip" to Screen.Skip, "live" to Screen.LiveFull,
             "printer" to Screen.PrinterSettings, "calibration" to Screen.Calibration, "print_options" to Screen.PrintOptions,
             "ams_settings" to Screen.AmsSettings, "liveview_settings" to Screen.LiveviewSettings,

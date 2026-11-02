@@ -54,7 +54,7 @@ import io.github.gccammelli.pandy.LocalPlatform
 import io.github.gccammelli.pandy.Printer
 import io.github.gccammelli.pandy.Repo
 import io.github.gccammelli.pandy.amsId
-import io.github.gccammelli.pandy.isSingleSlot
+import io.github.gccammelli.pandy.displayName
 import io.github.gccammelli.pandy.calibrate
 import io.github.gccammelli.pandy.decodeImage
 import io.github.gccammelli.pandy.load
@@ -172,7 +172,7 @@ fun FilamentScreen(p: Printer) {
             p.ams.forEach { (a, trays) ->
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        T(if (a.isSingleSlot()) "AMS HT" else "AMS ${'A' + a.index - 1}", 16.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        T(a.displayName(), 16.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         p.amsNum(a, "sensor.humidity_index")?.let { h ->
                             Icon(Icons.Outlined.WaterDrop, null, Modifier.size(16.dp), tint = humidityColor(h.toInt()))
                             T(" ${h.toInt()}", 13.sp, C.Sub)
@@ -185,6 +185,7 @@ fun FilamentScreen(p: Printer) {
                         trays.forEachIndexed { i, s ->
                             Box(Modifier.weight(1f).clickable(enabled = s != null) { open = s }) { SlotTile(s, "${'A' + a.index - 1}${i + 1}", Modifier.fillMaxWidth()) }
                         }
+                        repeat((4 - trays.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
                     }
                     Gap(10.dp)
                     T("Humidity level 1 (dry) to 5 (wet). Dry the filament above 3.", 12.sp, C.Sub)
@@ -401,7 +402,7 @@ private fun AmsSettingsCard(p: Printer, ams: io.github.gccammelli.pandy.AmsInfo,
         if (!settingsKnown) { revert(); return }
         p.setAmsSettings(ams.amsId(), start, insert, remain) { message -> revert(); err(message) }
     }
-    T(if (ams.isSingleSlot()) "AMS HT" else "AMS ${'A' + ams.index - 1}", 14.sp, C.Sub, modifier = Modifier.padding(horizontal = 6.dp))
+    T(ams.displayName(), 14.sp, C.Sub, modifier = Modifier.padding(horizontal = 6.dp))
     Gap(8.dp)
     if (Repo.showUnavailable || canSend) Group {
             if (insertionRemote == null) {

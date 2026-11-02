@@ -283,6 +283,25 @@ class ScreenTest {
 
     @Test fun skipShowsObjects() = show("Skip Parts") { SkipScreen(printer) }
     @Test fun filamentShowsSpools() = show("Filament") { FilamentScreen(printer) }
+
+    @Test fun singleSlotAmsHtDoesNotStretchAcrossTheCard() {
+        val ht = runBlocking {
+            val demo = FakeHomeAssistant(DemoConfig(amsType = "AMS HT"))
+            val info = demo.printers().single()
+            val states = Printer(info, emptyMap()).entityIds.associateWith { id ->
+                val entity = json.parseToJsonElement(demo.get("/api/states/$id")).jsonObject
+                Entity(id, entity.s("state")!!, entity["attributes"]!!.jsonObject)
+            }
+            Printer(info, states)
+        }
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme { FilamentScreen(ht) } } }
+        val label = compose.onNodeWithText("A1", useUnmergedTree = true).fetchSemanticsNode()
+        var clickable = label.parent
+        while (clickable != null && !clickable.config.contains(SemanticsActions.OnClick)) clickable = clickable.parent
+        val cardSlot = requireNotNull(clickable)
+        val screen = compose.onRoot().fetchSemanticsNode().boundsInRoot.width
+        kotlin.test.assertTrue(cardSlot.boundsInRoot.width < screen / 2, "The single slot should occupy roughly one quarter of the card")
+    }
     @Test fun settingsShowPrinter() = show("Settings") { PrinterSettingsScreen(printer) }
     @Test fun calibrationShowsOptions() = show("Calibration") { CalibrationScreen(printer) }
     @Test fun optionsShowMonitoring() = show("Print Options") { PrintOptionsScreen(printer) }
