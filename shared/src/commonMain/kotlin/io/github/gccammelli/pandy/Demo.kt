@@ -117,6 +117,12 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("switch", "ams_read_on_startup", "on", device = amsDev, uid = "AMS_1_ams_read_on_startup")
         add("switch", "ams_remaining_estimation", "on", device = amsDev, uid = "AMS_1_ams_remaining_estimation")
         add("switch", "ams_auto_refill", "off", device = amsDev, uid = "AMS_1_ams_auto_refill")
+        add("binary_sensor", "drying", "off", device = amsDev, uid = "AMS_1_drying")
+        add("sensor", "remaining_drying_time", 0.0, device = amsDev, uid = "AMS_1_remaining_drying_time")
+        add("sensor", "drying_target_temp", 50.0, device = amsDev, uid = "AMS_1_drying_target_temp")
+        add("binary_sensor", "drying", "off", device = amsDev, uid = "AMS_1_drying")
+        add("sensor", "remaining_drying_time", 0.0, device = amsDev, uid = "AMS_1_remaining_drying_time")
+        add("sensor", "drying_target_temp", 50.0, device = amsDev, uid = "AMS_1_drying_target_temp")
         add("sensor", "external_spool", "Generic PLA", tray("Generic PLA", "PLA", "#F98C36FF", -1), extDev, "ExternalSpool_external_spool")
         layerFromProgress()
     }
@@ -289,6 +295,17 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             }
             "bambu_lab/print_option" -> listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable")
                 .firstOrNull { d[it] != null }?.let { option -> d.s(option)?.let { value -> rows.firstOrNull { it.key == option }?.let { setById(id(it), if (value == "true") "on" else "off") } } }
+            "bambu_lab/start_filament_drying" -> {
+                rows.firstOrNull { it.key == "drying" }?.let { setById(id(it), "on") }
+                val duration = d.s("duration")?.toDoubleOrNull() ?: 4.0
+                rows.firstOrNull { it.key == "remaining_drying_time" }?.let { setById(id(it), duration.toString()) }
+                val temp = d.s("temp")?.toDoubleOrNull() ?: 50.0
+                rows.firstOrNull { it.key == "drying_target_temp" }?.let { setById(id(it), temp.toString()) }
+            }
+            "bambu_lab/stop_filament_drying" -> {
+                rows.firstOrNull { it.key == "drying" }?.let { setById(id(it), "off") }
+                rows.firstOrNull { it.key == "remaining_drying_time" }?.let { setById(id(it), "0.0") }
+            }
             "bambu_lab/ams_user_setting" -> {
                 val ams = d.s("ams_id")?.toIntOrNull() ?: 0
                 listOf("ams_read_on_startup" to "startup_read_option", "ams_read_on_insertion" to "tray_read_option", "ams_remaining_estimation" to "calibrate_remain_flag")

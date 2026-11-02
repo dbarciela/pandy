@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 class AmsTest {
@@ -57,5 +58,112 @@ class AmsTest {
         ))
         val ams = printersFrom(devices, entities).single().ams
         assertEquals(listOf(0, 128), ams.map { it.amsId() })
+    }
+
+    @Test
+    fun ams2ProAutoDetectionFromHwVersionOrDryingEntities() {
+        val serial = "TEST_SERIAL"
+        val devices = JsonArray(listOf(
+            json.parseToJsonElement("""{"id":"p1","identifiers":[["bambu_lab","$serial"]]}""").jsonObject,
+            // Case 1: HA reports model as generic "AMS", but hw_version is N3F01
+            json.parseToJsonElement("""{"id":"ams_hw","via_device_id":"p1","model":"AMS","hw_version":"N3F01","identifiers":[["bambu_lab","${serial}_AMS_0"]]}""").jsonObject,
+            // Case 2: HA reports model as generic "AMS", but has drying entities
+            json.parseToJsonElement("""{"id":"ams_dry","via_device_id":"p1","model":"AMS","identifiers":[["bambu_lab","${serial}_AMS_1"]]}""").jsonObject,
+            // Case 3: HA reports model as generic "AMS", but has ams_temp and multiple trays
+            json.parseToJsonElement("""{"id":"ams_temp","via_device_id":"p1","model":"AMS","identifiers":[["bambu_lab","${serial}_AMS_2"]]}""").jsonObject,
+            // Case 4: Standard legacy AMS 1 (no temperature, no drying)
+            json.parseToJsonElement("""{"id":"ams_legacy","via_device_id":"p1","model":"AMS","identifiers":[["bambu_lab","${serial}_AMS_3"]]}""").jsonObject,
+        ))
+        val entities = JsonArray(listOf(
+            json.parseToJsonElement("""{"entity_id":"sensor.ams0_tray_1","device_id":"ams_hw","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_1"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams0_tray_2","device_id":"ams_hw","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_2"}""").jsonObject,
+
+            json.parseToJsonElement("""{"entity_id":"sensor.ams1_tray_1","device_id":"ams_dry","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_1"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams1_tray_2","device_id":"ams_dry","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_2"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"binary_sensor.ams1_drying","device_id":"ams_dry","platform":"bambu_lab","translation_key":"drying","unique_id":"${serial}_drying"}""").jsonObject,
+
+            json.parseToJsonElement("""{"entity_id":"sensor.ams2_tray_1","device_id":"ams_temp","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_1"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams2_tray_2","device_id":"ams_temp","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_2"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams2_temp","device_id":"ams_temp","platform":"bambu_lab","translation_key":"ams_temp","unique_id":"${serial}_temp"}""").jsonObject,
+
+            json.parseToJsonElement("""{"entity_id":"sensor.ams3_tray_1","device_id":"ams_legacy","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_1"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams3_tray_2","device_id":"ams_legacy","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_2"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams3_humidity","device_id":"ams_legacy","platform":"bambu_lab","translation_key":"humidity_index","unique_id":"${serial}_humidity"}""").jsonObject,
+        ))
+        val amsList = printersFrom(devices, entities).single().ams
+        assertEquals(4, amsList.size)
+
+        // Case 1: Detected via hw_version
+        assertEquals("AMS 2 Pro", amsList[0].model)
+        assertEquals("AMS 2 Pro", amsList[0].modelBadge())
+        assertEquals(true, amsList[0].supportsDrying())
+
+        // Case 2: Detected via drying entity
+        assertEquals("AMS 2 Pro", amsList[1].model)
+        assertEquals("AMS 2 Pro", amsList[1].modelBadge())
+        assertEquals(true, amsList[1].supportsDrying())
+
+        // Case 3: Detected via ams_temp
+        assertEquals("AMS 2 Pro", amsList[2].model)
+        assertEquals("AMS 2 Pro", amsList[2].modelBadge())
+        assertEquals(true, amsList[2].supportsDrying())
+
+        // Case 4: Legacy AMS 1 remains standard AMS without badge or drying
+        assertEquals("AMS", amsList[3].model)
+        assertNull(amsList[3].modelBadge())
+        assertEquals(false, amsList[3].supportsDrying())
+    }
+
+    @Test
+    fun ams2ProModelIdentificationAndBadges() {
+        val ams2ProExplicit = AmsInfo("ams_pro", 1, "AMS 2 Pro", emptyMap(), emptyMap())
+        assertEquals(true, ams2ProExplicit.isAms2Pro())
+        assertEquals(true, ams2ProExplicit.supportsDrying())
+        assertEquals("AMS A", ams2ProExplicit.displayName())
+        assertEquals("AMS 2 Pro", ams2ProExplicit.modelBadge())
+
+        val ams2ProHw = AmsInfo("ams_hw", 2, "N3F05", emptyMap(), emptyMap())
+        assertEquals(true, ams2ProHw.isAms2Pro())
+        assertEquals(true, ams2ProHw.supportsDrying())
+        assertEquals("AMS B", ams2ProHw.displayName())
+        assertEquals("AMS 2 Pro", ams2ProHw.modelBadge())
+
+        val standard = AmsInfo("ams_std", 1, "AMS", emptyMap(), emptyMap())
+        assertEquals(false, standard.isAms2Pro())
+        assertEquals(false, standard.supportsDrying())
+        assertEquals("AMS A", standard.displayName())
+        assertNull(standard.modelBadge())
+
+        val ht = AmsInfo("ams_ht", 1, "AMS HT", emptyMap(), emptyMap())
+        assertEquals(false, ht.isAms2Pro())
+        assertEquals(true, ht.supportsDrying())
+        assertEquals("AMS HT", ht.displayName())
+        assertEquals("AMS HT", ht.modelBadge())
+    }
+
+    @Test
+    fun amsDryingTelemetryStates() {
+        val amsInfo = AmsInfo(
+            "ams1", 1, "AMS 2 Pro",
+            ids = mapOf(
+                "binary_sensor.drying" to "binary_sensor.ams1_drying",
+                "sensor.remaining_drying_time" to "sensor.ams1_drying_remain",
+                "sensor.drying_target_temp" to "sensor.ams1_drying_temp"
+            ),
+            trays = emptyMap()
+        )
+        val printerInfo = PrinterInfo("p", "serial", "Printer", "X2D", null, emptyMap(), listOf(amsInfo), emptyList())
+        val printer = Printer(
+            printerInfo,
+            mapOf(
+                "binary_sensor.ams1_drying" to Entity("binary_sensor.ams1_drying", "on", JsonObject(emptyMap())),
+                "sensor.ams1_drying_remain" to Entity("sensor.ams1_drying_remain", "3.5", JsonObject(emptyMap())),
+                "sensor.ams1_drying_temp" to Entity("sensor.ams1_drying_temp", "55.0", JsonObject(emptyMap()))
+            )
+        )
+
+        assertEquals(true, printer.amsIsDrying(amsInfo))
+        assertEquals(3.5, printer.amsDryingRemaining(amsInfo))
+        assertEquals(55.0, printer.amsDryingTargetTemp(amsInfo))
     }
 }

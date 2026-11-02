@@ -2961,4 +2961,62 @@ class ScreenTest {
         }
         org.junit.Assert.assertTrue(compose.onAllNodes(isRoot()).fetchSemanticsNodes().isNotEmpty())
     }
+
+    private fun sampleAms2ProPrinter(drying: Boolean = false): Pair<Printer, AmsInfo> {
+        val baseAms = printer.info.ams.first()
+        val ams2Pro = baseAms.copy(
+            model = "AMS 2 Pro",
+            ids = baseAms.ids + mapOf(
+                "binary_sensor.drying" to "binary_sensor.drying_active",
+                "sensor.remaining_drying_time" to "sensor.drying_remaining",
+                "sensor.drying_target_temp" to "sensor.drying_target"
+            )
+        )
+        val p = variant(
+            info = printer.info.copy(ams = listOf(ams2Pro)),
+            set = arrayOf(
+                "binary_sensor.drying_active" to entity(if (drying) "on" else "off"),
+                "sensor.drying_remaining" to entity(if (drying) "4.2" else "0.0"),
+                "sensor.drying_target" to entity("55.0")
+            )
+        )
+        return p to ams2Pro
+    }
+
+    @Test fun ams2ProFilamentScreenAndDryingSheetInteractCleanly() {
+        val (ams2ProPrinter, ams2Pro) = sampleAms2ProPrinter(drying = false)
+        val (dryingPrinter, _) = sampleAms2ProPrinter(drying = true)
+
+        val mode = androidx.compose.runtime.mutableStateOf("screen")
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    when (mode.value) {
+                        "screen" -> FilamentScreen(ams2ProPrinter)
+                        "idle_sheet" -> AmsDryingSheet(ams2ProPrinter, ams2Pro, {}) {}
+                        "drying_sheet" -> AmsDryingSheet(dryingPrinter, ams2Pro, {}) {}
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("AMS 2 Pro").assertExists()
+        compose.onNodeWithText("Filament drying").assertExists()
+
+        // Test AmsDryingSheet in idle state
+        compose.runOnIdle { mode.value = "idle_sheet" }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Filament Drying - AMS A").assertExists()
+        compose.onNodeWithText("Rotate spools periodically").assertExists()
+        compose.onNodeWithText("Start drying").assertExists()
+
+        // Test AmsDryingSheet in active drying state
+        compose.runOnIdle { mode.value = "drying_sheet" }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Drying in progress").assertExists()
+        compose.onNodeWithText("Stop drying").assertExists()
+    }
 }
