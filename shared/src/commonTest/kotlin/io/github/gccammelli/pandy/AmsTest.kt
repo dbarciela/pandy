@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 class AmsTest {
@@ -57,5 +58,58 @@ class AmsTest {
         ))
         val ams = printersFrom(devices, entities).single().ams
         assertEquals(listOf(0, 128), ams.map { it.amsId() })
+    }
+
+    @Test
+    fun ams2ProModelIdentificationAndBadges() {
+        val ams2ProExplicit = AmsInfo("ams_pro", 1, "AMS 2 Pro", emptyMap(), emptyMap())
+        assertEquals(true, ams2ProExplicit.isAms2Pro())
+        assertEquals(true, ams2ProExplicit.supportsDrying())
+        assertEquals("AMS A", ams2ProExplicit.displayName())
+        assertEquals("AMS 2 Pro", ams2ProExplicit.modelBadge())
+
+        val ams2ProHw = AmsInfo("ams_hw", 2, "N3F05", emptyMap(), emptyMap())
+        assertEquals(true, ams2ProHw.isAms2Pro())
+        assertEquals(true, ams2ProHw.supportsDrying())
+        assertEquals("AMS B", ams2ProHw.displayName())
+        assertEquals("AMS 2 Pro", ams2ProHw.modelBadge())
+
+        val standard = AmsInfo("ams_std", 1, "AMS", emptyMap(), emptyMap())
+        assertEquals(false, standard.isAms2Pro())
+        assertEquals(false, standard.supportsDrying())
+        assertEquals("AMS A", standard.displayName())
+        assertNull(standard.modelBadge())
+
+        val ht = AmsInfo("ams_ht", 1, "AMS HT", emptyMap(), emptyMap())
+        assertEquals(false, ht.isAms2Pro())
+        assertEquals(true, ht.supportsDrying())
+        assertEquals("AMS HT", ht.displayName())
+        assertEquals("AMS HT", ht.modelBadge())
+    }
+
+    @Test
+    fun amsDryingTelemetryStates() {
+        val amsInfo = AmsInfo(
+            "ams1", 1, "AMS 2 Pro",
+            ids = mapOf(
+                "binary_sensor.drying" to "binary_sensor.ams1_drying",
+                "sensor.remaining_drying_time" to "sensor.ams1_drying_remain",
+                "sensor.drying_target_temp" to "sensor.ams1_drying_temp"
+            ),
+            trays = emptyMap()
+        )
+        val printerInfo = PrinterInfo("p", "serial", "Printer", "X2D", null, emptyMap(), listOf(amsInfo), emptyList())
+        val printer = Printer(
+            printerInfo,
+            mapOf(
+                "binary_sensor.ams1_drying" to Entity("binary_sensor.ams1_drying", "on", JsonObject(emptyMap())),
+                "sensor.ams1_drying_remain" to Entity("sensor.ams1_drying_remain", "3.5", JsonObject(emptyMap())),
+                "sensor.ams1_drying_temp" to Entity("sensor.ams1_drying_temp", "55.0", JsonObject(emptyMap()))
+            )
+        )
+
+        assertEquals(true, printer.amsIsDrying(amsInfo))
+        assertEquals(3.5, printer.amsDryingRemaining(amsInfo))
+        assertEquals(55.0, printer.amsDryingTargetTemp(amsInfo))
     }
 }

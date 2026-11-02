@@ -38,5 +38,6 @@
             </intent-filter>
         </activity>
         <service android:name=".WatchService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <receiver android:name=".NotificationActionReceiver" android:exported="false" />
     </application>
 </manifest>

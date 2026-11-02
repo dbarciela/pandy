@@ -58,8 +58,10 @@ import io.github.gccammelli.pandy.Repo
 import io.github.gccammelli.pandy.Spool
 import io.github.gccammelli.pandy.UiState
 import io.github.gccammelli.pandy.button
+import io.github.gccammelli.pandy.displayName
 import io.github.gccammelli.pandy.isSingleSlot
 import io.github.gccammelli.pandy.light
+import io.github.gccammelli.pandy.modelBadge
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -196,25 +198,73 @@ private fun Hero(p: Printer) {
 private fun PrinterPage(p: Printer) = Box(Modifier.fillMaxSize().background(C.Card).padding(10.dp)) {
     val amsColors = p.ams.firstOrNull()?.second.orEmpty().map { Color(if (it?.known == true) it.color else 0xFFDDDDDD) }
     PrinterArt(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 4.dp), ams = p.info.ams.isNotEmpty(), lit = p.lightOn, amsColors = amsColors)
-    TempChip(Icons.Outlined.Settings, "nozzle", p.nozzle, p.nozzleTarget, Modifier.align(Alignment.TopStart))
-    if (p.chamber != null) TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
-    TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
-    p.ams.firstOrNull()?.let { (a, _) ->
-        p.amsNum(a, "sensor.humidity_index")?.let { h ->
-            Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
-                Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+    if (p.isDualNozzle) {
+        TempChip(null, "nozzle", p.leftNozzle ?: p.nozzle, p.leftNozzleTarget, Modifier.align(Alignment.TopStart), label = "L")
+        TempChip(null, "nozzle", p.rightNozzle ?: p.nozzle, p.rightNozzleTarget, Modifier.align(Alignment.TopEnd), label = "R")
+        if (p.chamber != null) {
+            TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.BottomStart))
+            TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomEnd))
+        } else {
+            TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
+            p.ams.firstOrNull()?.let { (a, _) ->
+                p.amsNum(a, "sensor.humidity_index")?.let { h ->
+                    Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
+                        Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    } else {
+        TempChip(Icons.Outlined.Settings, "nozzle", p.nozzle, p.nozzleTarget, Modifier.align(Alignment.TopStart))
+        if (p.chamber != null) TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
+        TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
+        p.ams.firstOrNull()?.let { (a, _) ->
+            p.amsNum(a, "sensor.humidity_index")?.let { h ->
+                Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
+                    Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+                }
             }
         }
     }
+    p.doorOpen?.let { open ->
+        DoorChip(open, Modifier.align(Alignment.BottomCenter))
+    }
 }
+
+@Composable
+fun DoorGlyph(modifier: Modifier = Modifier, color: Color = C.Sub) {
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        drawRect(color, androidx.compose.ui.geometry.Offset(w * 0.15f, 0f), androidx.compose.ui.geometry.Size(w * 0.7f, h), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+        drawCircle(color, radius = w * 0.08f, center = androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.55f))
+    }
+}
+
+@Composable
+fun DoorChip(open: Boolean, modifier: Modifier = Modifier) =
+    Row(
+        modifier.clip(CircleShape)
+            .background(if (open) C.AccentBg else C.Fill)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        DoorGlyph(Modifier.size(13.dp), color = if (open) C.Orange else C.Sub)
+        Spacer(Modifier.width(5.dp))
+        T(if (open) "Door open" else "Door closed", 12.sp, if (open) C.Orange else C.Text, FontWeight.Medium)
+    }
 
 fun humidityColor(level: Int) = when { level <= 2 -> Color(0xFF00A33E); level == 3 -> Color(0xFFFFB020); else -> Color(0xFFE5484D) }
 
 /** "28 /0°C" with a small symbol for which heater; an arrow while heating (orange) or cooling (blue). */
 @Composable
-private fun TempChip(icon: ImageVector?, which: String, now: Double?, target: Double?, modifier: Modifier) =
+private fun TempChip(icon: ImageVector?, which: String, now: Double?, target: Double?, modifier: Modifier = Modifier, label: String? = null) =
     Row(modifier.clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (label != null) {
+            T(label, 12.sp, C.Sub, FontWeight.Bold)
+            Spacer(Modifier.width(4.dp))
+        }
         HeaterGlyph(which, Modifier.size(14.dp))
         Spacer(Modifier.width(5.dp))
         TempText(now, target, 14.sp, 10.sp)
@@ -348,19 +398,41 @@ fun NozzleCard(p: Printer, modifier: Modifier = Modifier, onClick: () -> Unit) =
         T("Nozzle & Extruder", 13.sp, C.Sub, modifier = Modifier.weight(1f))
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = C.Faint)
     }
-    Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                T(p.nozzle?.toInt()?.toString() ?: "--", 26.sp, tempColor(p.nozzle, p.nozzleTarget), FontWeight.Bold)
-                T("/${p.nozzleTarget?.toInt() ?: 0}°C", 11.sp, C.Sub)
+    if (p.isDualNozzle) {
+        Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
+            val lTemp = p.leftNozzle ?: p.nozzle
+            val lTarget = p.leftNozzleTarget ?: p.nozzleTarget
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    T(lTemp?.toInt()?.toString() ?: "--", 26.sp, tempColor(lTemp, lTarget), FontWeight.Bold)
+                    T("/${lTarget?.toInt() ?: 0}°C", 11.sp, C.Sub)
+                }
+            }
+            ToolheadArt(Modifier.size(56.dp, 84.dp))
+            val rTemp = p.rightNozzle ?: p.nozzle
+            val rTarget = p.rightNozzleTarget ?: p.nozzleTarget
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    T(rTemp?.toInt()?.toString() ?: "--", 26.sp, tempColor(rTemp, rTarget), FontWeight.Bold)
+                    T("/${rTarget?.toInt() ?: 0}°C", 11.sp, C.Sub)
+                }
             }
         }
-        ToolheadArt(Modifier.size(56.dp, 84.dp))
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            p.state("sensor.nozzle_diameter")?.let { d ->
+    } else {
+        Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    T("$d mm", 15.sp, weight = FontWeight.Bold)
-                    T(nozzleType(p.state("sensor.nozzle_type")), 11.sp, C.Sub)
+                    T(p.nozzle?.toInt()?.toString() ?: "--", 26.sp, tempColor(p.nozzle, p.nozzleTarget), FontWeight.Bold)
+                    T("/${p.nozzleTarget?.toInt() ?: 0}°C", 11.sp, C.Sub)
+                }
+            }
+            ToolheadArt(Modifier.size(56.dp, 84.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                p.state("sensor.nozzle_diameter")?.let { d ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        T("$d mm", 15.sp, weight = FontWeight.Bold)
+                        T(nozzleType(p.state("sensor.nozzle_type")), 11.sp, C.Sub)
+                    }
                 }
             }
         }
@@ -403,7 +475,20 @@ private fun FilamentCard(p: Printer, onClick: () -> Unit) = Card(padding = andro
     if (p.ams.isEmpty() && p.external.isEmpty()) { T("No AMS or external spool in Home Assistant", 13.sp, C.Sub); return@Card }
     p.ams.forEach { (a, trays) ->
         Row(verticalAlignment = Alignment.CenterVertically) {
-            T(if (a.isSingleSlot()) "AMS HT" else "AMS ${'A' + a.index - 1}", 13.sp, C.Sub, modifier = Modifier.weight(1f))
+            T(a.displayName(), 13.sp, C.Sub)
+            a.modelBadge()?.let { badge ->
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.clip(RoundedCornerShape(4.dp)).background(C.Fill).padding(horizontal = 5.dp, vertical = 1.dp)) {
+                    T(badge, 10.sp, C.Sub, FontWeight.Medium)
+                }
+            }
+            if (p.amsIsDrying(a)) {
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.clip(RoundedCornerShape(4.dp)).background(C.AccentBg).padding(horizontal = 5.dp, vertical = 1.dp)) {
+                    T("Drying", 10.sp, C.Orange, FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.weight(1f))
             p.amsNum(a, "sensor.humidity_index")?.let { h ->
                 Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
                 T(" ${h.toInt()}", 12.sp, C.Sub)

@@ -46,7 +46,7 @@ class LanTest {
         for ((code, serial, expected) in listOf(
             Triple("N7","22E123","P2S"), Triple("N2S","039123","A1"),
             Triple("N1","030123","A1 mini"), Triple("O1D","094123","H2D"),
-            Triple("O1S","239123","H2S"), Triple("C13","03W123","X1E"),
+            Triple("O1S","239123","H2S"), Triple("N6","20P123","X2D"), Triple("C13","03W123","X1E"),
             Triple("C11","01S123","P1P"), Triple("C12","01P123","P1S"),
             Triple("BL-P001","00M123","X1C"), Triple("BL-P002","00W123","X1"),
         )) {
@@ -237,6 +237,56 @@ class LanFirmwareTest {
         val r = json.parseToJsonElement("""{"print":{"gcode_state":"IDLE","device":{"ctc":{"info":{"temp":25}}}}}""").jsonObject
         val e = lanEntities(cfg, r, true).associate { it.first.key to it.second.state }
         assertEquals("25.0", e["chamber_temp"]); assertEquals("Demo X1C", e["printer_name"])
+    }
+
+    @Test fun dualNozzleEntitiesAreExposedAndTrackActiveNozzle() {
+        val cfg = LanConfig("192.168.1.127", "20P5BJ662702671", "e329a28e", "X2D", "Bambu X2D")
+        val r = json.parseToJsonElement("""{
+            "print": {
+                "gcode_state": "RUNNING",
+                "nozzle_temper": 210.0,
+                "nozzle_target_temper": 220,
+                "device": {
+                    "extruder": {
+                        "info": [
+                            {"id": 0, "temp": 14418130},
+                            {"id": 1, "temp": 40}
+                        ],
+                        "state": 2
+                    },
+                    "nozzle": {
+                        "info": [
+                            {"id": 0, "diameter": 0.4, "type": "HS01"},
+                            {"id": 1, "diameter": 0.6, "type": "HH01"}
+                        ]
+                    }
+                }
+            }
+        }""").jsonObject
+        val ents = lanEntities(cfg, r, online = true)
+        val map = ents.associate { it.first.key to it.second.state }
+        assertEquals("210.0", map["right_nozzle_temp"])
+        assertEquals("220", map["right_target_nozzle_temp"])
+        assertEquals("40.0", map["left_nozzle_temp"])
+        assertEquals("0", map["left_target_nozzle_temp"])
+        assertEquals("right", map["active_nozzle"])
+        assertEquals("0.4", map["right_nozzle_diameter"])
+        assertEquals("hardened_steel", map["right_nozzle_type"])
+        assertEquals("0.6", map["left_nozzle_diameter"])
+        assertEquals("high_flow_hardened_steel", map["left_nozzle_type"])
+
+        val devs = JsonArray(listOf(json.parseToJsonElement("""{"id":"printer","name":"X2D","model":"X2D","identifiers":[["bambu_lab","${cfg.serial}"]]}""")))
+        val registry = JsonArray(ents.map { (row, _) ->
+            json.parseToJsonElement("""{"entity_id":"${row.id}","device_id":"printer","platform":"bambu_lab","translation_key":"${row.key}","unique_id":"${cfg.serial}_${row.uid}"}""")
+        })
+        val info = printersFrom(devs, registry).single()
+        val p = Printer(info, ents.associate { it.second.id to it.second })
+        assertTrue(p.isDualNozzle)
+        assertEquals(40.0, p.leftNozzle)
+        assertEquals(0.0, p.leftNozzleTarget)
+        assertEquals(210.0, p.rightNozzle)
+        assertEquals(220.0, p.rightNozzleTarget)
+        assertEquals("right", p.activeNozzle)
     }
 }
 

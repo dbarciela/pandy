@@ -252,9 +252,15 @@ fun hexColor(s: String?): Long {
 fun printersFrom(devs: JsonArray, ents: JsonArray): List<PrinterInfo> {
     val all = devs.map { it.jsonObject }.filter { d -> d.a("identifiers")?.any { (it.jsonArray[0] as JsonPrimitive).content == "bambu_lab" } == true }
     val byDevice = ents.map { it.jsonObject }.filter { it.s("platform") == "bambu_lab" && it.s("disabled_by") == null }.groupBy { it.s("device_id") }
-    fun keyed(id: String?) = byDevice[id].orEmpty().mapNotNull { r ->
+    fun keyed(id: String?, serial: String? = null) = byDevice[id].orEmpty().mapNotNull { r ->
         val eid = r.s("entity_id") ?: return@mapNotNull null
-        val key = r.s("translation_key") ?: r.s("unique_id")?.substringAfterLast('_') ?: return@mapNotNull null
+        val u = r.s("unique_id")
+        val key = r.s("translation_key")
+            ?: (if (u != null && u.contains("remaining_drying_time")) "remaining_drying_time" else null)
+            ?: (if (u != null && u.endsWith("_drying")) "drying" else null)
+            ?: (if (serial != null && u != null && u.startsWith("${serial}_")) u.removePrefix("${serial}_") else null)
+            ?: u?.substringAfterLast('_')
+            ?: return@mapNotNull null
         "${eid.substringBefore('.')}.$key" to eid
     }.toMap()
     val printers = all.filter { it.s("via_device_id") == null }
@@ -279,7 +285,7 @@ fun printersFrom(devs: JsonArray, ents: JsonArray): List<PrinterInfo> {
         val extDev = children.firstOrNull { c -> byDevice[c.s("id")].orEmpty().any { it.s("translation_key") == "external_spool" } }?.s("id")
         val ext = children.flatMap { c -> byDevice[c.s("id")].orEmpty().filter { it.s("translation_key") == "external_spool" }.mapNotNull { it.s("entity_id") } }
         val serial = p.a("identifiers")!!.map { it.jsonArray }.first { (it[0] as JsonPrimitive).content == "bambu_lab" }[1].let { (it as JsonPrimitive).content }
-        PrinterInfo(p.s("id")!!, serial, p.s("name_by_user") ?: p.s("name") ?: serial, p.s("model") ?: "", p.s("sw_version"), keyed(p.s("id")), ams, ext, extDev)
+        PrinterInfo(p.s("id")!!, serial, p.s("name_by_user") ?: p.s("name") ?: serial, p.s("model") ?: "", p.s("sw_version"), keyed(p.s("id"), serial), ams, ext, extDev)
     }
 }
 
@@ -318,6 +324,12 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     val speed get() = state("select.printing_speed") ?: state("sensor.speed_profile")
     val nozzle get() = get("sensor.nozzle_temp")?.celsius
     val nozzleTarget get() = get("sensor.target_nozzle_temp")?.celsius
+    val isDualNozzle: Boolean get() = info.ids.containsKey("sensor.left_nozzle_temp") || info.ids.containsKey("sensor.right_nozzle_temp") || model.contains("2D")
+    val leftNozzle: Double? get() = get("sensor.left_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle == "left") nozzle else null
+    val leftNozzleTarget: Double? get() = get("sensor.left_target_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle == "left") nozzleTarget else null
+    val rightNozzle: Double? get() = get("sensor.right_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle != "left") nozzle else null
+    val rightNozzleTarget: Double? get() = get("sensor.right_target_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle != "left") nozzleTarget else null
+    val activeNozzle: String? get() = state("sensor.active_nozzle") ?: if (isDualNozzle) "right" else null
     val bed get() = get("sensor.bed_temp")?.celsius
     val bedTarget get() = get("sensor.target_bed_temp")?.celsius
     val chamber get() = get("sensor.chamber_temp")?.celsius
@@ -347,6 +359,9 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     fun amsTemp(a: AmsInfo) = a.ids["sensor.ams_temp"]?.let { states[it] }?.celsius
     /** A boolean setting exposed by an AMS; null means this firmware/integration did not report it. */
     fun amsFlag(a: AmsInfo, key: String): Boolean? = a.ids["switch.$key"]?.let { id -> states[id]?.flag }
+    fun amsIsDrying(a: AmsInfo): Boolean = a.ids["binary_sensor.drying"]?.let { states[it]?.on } ?: false
+    fun amsDryingRemaining(a: AmsInfo): Double? = a.ids["sensor.remaining_drying_time"]?.let { states[it]?.num }
+    fun amsDryingTargetTemp(a: AmsInfo): Double? = a.ids["sensor.drying_target_temp"]?.let { states[it]?.num }
     fun flag(key: String): Boolean? = get("switch.$key")?.flag
     fun flagAttribute(key: String, attribute: String): Boolean? = get("switch.$key")?.attrs?.s(attribute)?.let(::parseFlag)
 
@@ -435,6 +450,21 @@ fun Printer.setPrintOption(option: String, enabled: Boolean, err: (String) -> Un
     bambu("print_option", this@setPrintOption, buildJsonObject {
         put(option, enabled)
         if (option == "auto_recovery") put("option", if (enabled) 1 else 0)
+        if (option == "nozzle_blob_detect") put("nozzle_blob_detect_v2", if (enabled) 1 else 0)
+    })
+}
+
+/** Changes the open-door warning/pause check firmware setting. */
+fun Printer.setDoorCheck(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
+    bambu("set_door_stat", this@setDoorCheck, buildJsonObject {
+        put("enable", enabled); put("config", if (enabled) 1 else 0)
+    })
+}
+
+/** Toggles caching remote print files to internal/SD storage. */
+fun Printer.setPrintCache(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
+    bambu("print_cache_set", this@setPrintCache, buildJsonObject {
+        put("enable", enabled); put("config", enabled)
     })
 }
 
@@ -443,6 +473,33 @@ fun Printer.setAmsSettings(amsId: Int, startup: Boolean, insertion: Boolean, rem
     bambu("ams_user_setting", this@setAmsSettings, buildJsonObject {
         put("ams_id", amsId); put("startup_read_option", startup); put("tray_read_option", insertion); put("calibrate_remain_flag", remaining)
     })
+}
+
+suspend fun HaBackend.startAmsDrying(p: Printer, a: AmsInfo, temp: Int, durationHours: Int, rotateTray: Boolean) {
+    val data = buildJsonObject {
+        put("device_id", a.haId.ifBlank { p.info.haId })
+        put("ams_id", a.amsId())
+        put("temp", temp)
+        put("duration", durationHours)
+        put("rotate_tray", rotateTray)
+    }
+    call("bambu_lab", "start_filament_drying", data)
+}
+
+suspend fun HaBackend.stopAmsDrying(p: Printer, a: AmsInfo) {
+    val data = buildJsonObject {
+        put("device_id", a.haId.ifBlank { p.info.haId })
+        put("ams_id", a.amsId())
+    }
+    call("bambu_lab", "stop_filament_drying", data)
+}
+
+fun Printer.startAmsDrying(a: AmsInfo, temp: Int, durationHours: Int, rotateTray: Boolean, err: (String) -> Unit) = Repo.act(err) {
+    startAmsDrying(this@startAmsDrying, a, temp, durationHours, rotateTray)
+}
+
+fun Printer.stopAmsDrying(a: AmsInfo, err: (String) -> Unit) = Repo.act(err) {
+    stopAmsDrying(this@stopAmsDrying, a)
 }
 
 /** An HLS address for a camera, from Home Assistant's own streaming (valid while it's being watched). */
@@ -540,6 +597,15 @@ fun filamentKey(type: String, colour: String) = "${type.trim().uppercase()}|${he
 
 /** The absolute tray ID used by the printer protocol: standard AMS 0–103, AMS HT 128–135. */
 fun AmsInfo.isSingleSlot() = model.contains("HT", ignoreCase = true) || model.contains("N3S", ignoreCase = true) || protocolId?.let { it >= 128 } == true
+fun AmsInfo.isAms2Pro() = model.contains("2 Pro", ignoreCase = true) || model.contains("N3F", ignoreCase = true) || model.contains("AMS 2", ignoreCase = true)
+fun AmsInfo.supportsDrying() = isAms2Pro() || isSingleSlot()
+fun AmsInfo.displayName() = if (isSingleSlot()) "AMS HT" else "AMS ${'A' + index - 1}"
+fun AmsInfo.modelBadge(): String? = when {
+    isAms2Pro() -> "AMS 2 Pro"
+    isSingleSlot() -> "AMS HT"
+    model.contains("Lite", ignoreCase = true) -> "AMS Lite"
+    else -> null
+}
 
 /** The protocol's AMS unit ID; unlike [index], HT units start at 128. */
 fun AmsInfo.amsId(): Int = protocolId?.takeIf { !isSingleSlot() || it >= 128 } ?: if (isSingleSlot()) 128 else index - 1

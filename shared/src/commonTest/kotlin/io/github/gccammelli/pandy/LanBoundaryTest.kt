@@ -53,7 +53,7 @@ class LanBoundaryTest {
 
     @Test fun chamberTemperaturesAreLimitedToSupportedModelsAndBedTypeUsesFallback() {
         val report = """{"print":{"device":{"ctc":{"info":{"temp":25}}},"print_bed_type":"cool_plate","sdcard":"false","ipcam":{"timelapse":"disable"}}}"""
-        for (model in listOf("X1C", "H2D", "P2S")) assertEquals("25.0", entities(report, model).getValue("chamber_temp").state)
+        for (model in listOf("X1C", "H2D", "P2S", "X2D")) assertEquals("25.0", entities(report, model).getValue("chamber_temp").state)
         for (model in listOf("P1S", "A1")) assertFalse(entities(report, model).containsKey("chamber_temp"))
         val e = entities(report)
         assertEquals("cool_plate", e.getValue("print_bed_type").state)
@@ -100,7 +100,7 @@ class LanBoundaryTest {
     }
 
     @Test fun advertisedCameraAndNozzleVariantsRemainReadableAcrossPrinterFamilies() {
-        for((model,rtsp) in listOf("X1C" to true,"H2D" to true,"P2S" to true,"P1S" to false,"A1" to false))
+        for((model,rtsp) in listOf("X1C" to true,"H2D" to true,"P2S" to true,"X2D" to true,"P1S" to false,"A1" to false))
             assertEquals(rtsp,rtspCamera(model))
         for((raw,expected) in listOf("HS00" to "stainless_steel","HH01" to "high_flow_hardened_steel",
             "HH05" to "high_flow_tungsten_carbide","HS99" to "unknown","1234" to "1234","HHxx" to "HHxx","brass" to "brass"))
@@ -123,5 +123,117 @@ class LanBoundaryTest {
         val absent=rows.first { it.first.device=="ams1" && it.first.key=="tray" }.second
         assertEquals("Empty",absent.state); assertEquals("true",absent.attrs.s("empty"))
         assertEquals("",rows.single { it.first.key=="external_spool" }.second.attrs.s("type"))
+    }
+
+    @Test fun x2dModernAiModulesAndPrintOptionsAreParsedFromBitmapsAndPayloads() {
+        // MOCK-X2D payload structure with integer xcam.cfg (8089015 = 0x7B6DB7 -> bits 20, 21, 22 set)
+        // and top-level cfg hex "5A1045FDA99" (bit 12=1, bit 15=1, bit 16=1, bit 19=1, bit 20=1, bit 22=1, bit 23=0)
+        val x2dPayload = """{
+            "print": {
+                "xcam": {
+                    "allow_skip_parts": false,
+                    "buildplate_marker_detector": true,
+                    "cfg": 8089015,
+                    "first_layer_inspector": true,
+                    "halt_print_sensitivity": "medium",
+                    "print_halt": true,
+                    "printing_monitor": true,
+                    "spaghetti_detector": true
+                },
+                "cfg": "5A1045FDA99",
+                "home_flag": -1066967905,
+                "stat": "46258008"
+            }
+        }"""
+        val e = entities(x2dPayload, model = "X2D")
+        assertEquals("on", e.getValue("printing_monitor").state)
+        assertEquals("on", e.getValue("buildplate_marker_detector").state)
+        assertEquals("on", e.getValue("first_layer_inspector").state)
+        assertEquals("on", e.getValue("plate_offset_switch").state)
+        assertEquals("on", e.getValue("fod_check").state)
+        assertEquals("on", e.getValue("model_movement_check").state)
+        assertEquals("on", e.getValue("auto_recovery").state)
+        assertEquals("on", e.getValue("print_cache").state)
+        assertEquals("on", e.getValue("door_open_check").state)
+        assertEquals("on", e.getValue("prompt_sound").state)
+        assertFalse(e.containsKey("filament_tangle_detect"))
+        assertFalse(e.containsKey("nozzle_blob_detect"))
+        assertEquals("off", e.getValue("door_open").state)
+
+        // When a model advertises tangle and blob support via capability bits
+        val supportedMask = (1L shl 19) or (1L shl 20) or (1L shl 25) or (1L shl 24)
+        val supportedPayload = """{"print": {"home_flag": $supportedMask}}"""
+        val sup = entities(supportedPayload)
+        assertEquals("on", sup.getValue("filament_tangle_detect").state)
+        assertEquals("on", sup.getValue("nozzle_blob_detect").state)
+
+        // When door is open (bit 23 in stat hex string "46A58008")
+        val openDoorPayload = """{"print": {"stat": "46A58008"}}"""
+        assertEquals("on", entities(openDoorPayload, model = "X2D").getValue("door_open").state)
+
+        // Legacy spaghetti_detector without printing_monitor falls back cleanly
+        val spaghettiOnly = """{"print": {"xcam": {"spaghetti_detector": true, "print_halt": true}}}"""
+        val sp = entities(spaghettiOnly)
+        assertEquals("on", sp.getValue("printing_monitor").state)
+        assertEquals("true", sp.getValue("printing_monitor").attrs.s("print_halt"))
+
+        // System and print option command formatting
+        val doorCmd = doorStatCommand("42", 1)["system"]!!.jsonObject
+        assertEquals("set_door_stat", doorCmd.s("command"))
+        assertEquals("1", doorCmd.s("config"))
+
+        val cacheCmd = printCacheCommand("43", true)["system"]!!.jsonObject
+        assertEquals("print_cache_set", cacheCmd.s("command"))
+        assertEquals("true", cacheCmd.s("config"))
+
+        val blobCmd = printOptionCommand("44", "nozzle_blob_detect", true)["print"]!!.jsonObject
+        assertEquals("print_option", blobCmd.s("command"))
+        assertEquals("1", blobCmd.s("nozzle_blob_detect_v2"))
+
+        val soundCmd = printOptionCommand("45", "sound_enable", false)["print"]!!.jsonObject
+        assertEquals("false", soundCmd.s("sound_enable"))
+    }
+
+    @Test
+    fun amsDryingCommandsAndLanTelemetry() {
+        val startCmd = amsDryingCommand("101", 0, 55, 360, true)["print"]!!.jsonObject
+        assertEquals("ams_drying", startCmd.s("command"))
+        assertEquals("start", startCmd.s("action"))
+        assertEquals("0", startCmd.s("ams_id"))
+        assertEquals("55", startCmd.s("temp"))
+        assertEquals("360", startCmd.s("duration"))
+        assertEquals("true", startCmd.s("rotate_tray"))
+
+        val stopCmd = amsStopDryingCommand("102", 0)["print"]!!.jsonObject
+        assertEquals("ams_drying", stopCmd.s("command"))
+        assertEquals("stop", stopCmd.s("action"))
+        assertEquals("0", stopCmd.s("ams_id"))
+
+        val amsReport = """{
+            "print": {
+                "ams": {
+                    "ams": [
+                        {
+                            "id": "0",
+                            "model": "AMS 2 Pro",
+                            "hw_version": "N3F05",
+                            "is_drying": true,
+                            "remain_time": 180,
+                            "target_temp": 55,
+                            "temp": 48.0,
+                            "tray": []
+                        }
+                    ]
+                }
+            }
+        }"""
+        val amsEntities = lanEntities(config, obj(amsReport), true, null)
+            .filter { it.first.device == "ams0" }
+            .associate { it.first.key to it.second }
+
+        assertEquals("on", amsEntities.getValue("drying").state)
+        assertEquals("3.0", amsEntities.getValue("remaining_drying_time").state)
+        assertEquals("55.0", amsEntities.getValue("drying_target_temp").state)
+        assertEquals("48.0", amsEntities.getValue("ams_temp").state)
     }
 }

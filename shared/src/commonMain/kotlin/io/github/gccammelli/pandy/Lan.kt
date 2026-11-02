@@ -61,7 +61,7 @@ expect suspend fun discoverPrinters(millis: Long): List<FoundPrinter>
 fun modelName(code: String?, serial: String = ""): String = when {
     code == null || code.isBlank() -> when (serial.take(3)) {
         "00M" -> "X1C"; "00W" -> "X1"; "03W" -> "X1E"; "01S" -> "P1P"; "01P" -> "P1S"; "22E" -> "P2S"
-        "039" -> "A1"; "030" -> "A1 mini"; "094" -> "H2D"; "239" -> "H2S"; else -> "Bambu printer"
+        "039" -> "A1"; "030" -> "A1 mini"; "094" -> "H2D"; "239" -> "H2S"; "20P" -> "X2D"; else -> "Bambu printer"
     }
     code.contains("X1-Carbon", true) || code == "BL-P001" -> "X1C"
     code.contains("X1E", true) || code == "C13" -> "X1E"
@@ -73,11 +73,12 @@ fun modelName(code: String?, serial: String = ""): String = when {
     code == "N1" -> "A1 mini"
     code == "O1D" -> "H2D"
     code == "O1S" -> "H2S"
+    code == "N6" || code.contains("X2", true) -> "X2D"
     else -> code
 }
 
 /** X1 and H2 cameras stream RTSP; P1 and A1 send JPEG frames. */
-fun rtspCamera(model: String) = model.startsWith("X1") || model.startsWith("H2") || model.startsWith("P2")
+fun rtspCamera(model: String) = model.startsWith("X1") || model.startsWith("H2") || model.startsWith("P2") || model.startsWith("X2")
 
 /** Merges a report into the last one: printers (P1, A1) send only what changed. Objects merge; arrays and values replace. */
 fun deepMerge(old: JsonObject, new: JsonObject): JsonObject = JsonObject(old + new.mapValues { (k, v) ->
@@ -185,7 +186,37 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     add("switch", "camera", "on")
     // These are reported only by firmware that supports the corresponding XCam/print option.
     val xcam = p.o("xcam") ?: r.o("xcam")
-    listOf("printing_monitor", "buildplate_marker_detector", "first_layer_inspector", "spaghetti_detector", "pileup_detector", "air_print_detector", "clump_detector")
+    val pm = xcam?.flag("printing_monitor") ?: xcam?.flag("spaghetti_detector") ?: p.hexBit("cfg", 15)
+    pm?.let { enabled ->
+        val printHalt = xcam?.flag("printing_monitor_print_halt") ?: xcam?.o("printing_monitor")?.flag("print_halt") ?: xcam?.flag("print_halt") ?: (p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 13) and 3L) != 0L })
+        add("switch", "printing_monitor", if (enabled) "on" else "off", buildJsonObject {
+            printHalt?.let { put("print_halt", it) }
+        })
+    }
+    val bpm = xcam?.flag("buildplate_marker_detector")
+    bpm?.let { enabled ->
+        val printHalt = xcam?.flag("buildplate_marker_detector_print_halt") ?: xcam?.o("buildplate_marker_detector")?.flag("print_halt") ?: xcam?.flag("print_halt")
+        add("switch", "buildplate_marker_detector", if (enabled) "on" else "off", buildJsonObject {
+            printHalt?.let { put("print_halt", it) }
+        })
+    }
+    val fli = xcam?.flag("first_layer_inspector") ?: p.hexBit("cfg", 12)
+    fli?.let { enabled ->
+        val printHalt = xcam?.flag("first_layer_inspector_print_halt") ?: xcam?.o("first_layer_inspector")?.flag("print_halt") ?: xcam?.flag("print_halt")
+        add("switch", "first_layer_inspector", if (enabled) "on" else "off", buildJsonObject {
+            printHalt?.let { put("print_halt", it) }
+        })
+    }
+    (xcam?.flag("plate_offset_switch") ?: xcam?.flag("buildplate_align_detector") ?: xcam?.bit("cfg", 20))?.let {
+        add("switch", "plate_offset_switch", if (it) "on" else "off")
+    }
+    (xcam?.flag("fod_check") ?: xcam?.bit("cfg", 21))?.let {
+        add("switch", "fod_check", if (it) "on" else "off")
+    }
+    (xcam?.flag("model_movement_check") ?: xcam?.flag("displacement_detector") ?: xcam?.bit("cfg", 22))?.let {
+        add("switch", "model_movement_check", if (it) "on" else "off")
+    }
+    listOf("spaghetti_detector", "pileup_detector", "air_print_detector", "clump_detector")
         .forEach { module ->
             xcam?.flag(module)?.let { enabled ->
                 val printHalt = xcam.flag("${module}_print_halt") ?: xcam.o(module)?.flag("print_halt") ?: xcam.flag("print_halt")
@@ -198,6 +229,20 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     // Legacy firmware puts these values in home_flag; newer firmware mirrors them in the hex cfg bitmap.
     (printOptions?.flag("auto_recovery") ?: p.flag("auto_recovery") ?: p.bit("home_flag", 4) ?: p.hexBit("cfg", 16))?.let { add("switch", "auto_recovery", if (it) "on" else "off") }
     (printOptions?.flag("auto_switch_filament") ?: p.flag("auto_switch_filament") ?: p.bit("home_flag", 10) ?: p.hexBit("cfg", 18))?.let { add("switch", "auto_switch_filament", if (it) "on" else "off") }
+    val supportTangle = (printOptions?.get("filament_tangle_detect") != null) || (p.bit("home_flag", 19) == true) || (p.hexBit("fun", 9) == true)
+    if (supportTangle) {
+        val tangle = printOptions?.flag("filament_tangle_detect") ?: p.flag("filament_tangle_detect") ?: p.hexBit("cfg", 23) ?: p.bit("home_flag", 20)
+        tangle?.let { add("switch", "filament_tangle_detect", if (it) "on" else "off") }
+    }
+    (printOptions?.flag("sound_enable") ?: printOptions?.flag("prompt_sound") ?: p.flag("prompt_sound") ?: p.hexBit("cfg", 22) ?: p.bit("home_flag", 17))?.let { add("switch", "prompt_sound", if (it) "on" else "off") }
+    val supportBlob = (printOptions?.get("nozzle_blob_detect") != null) || (p.bit("home_flag", 25) == true) || (p.hexBit("fun2", 15) == true) || (p.hexBit("fun", 13) == true)
+    if (supportBlob) {
+        val blob = printOptions?.flag("nozzle_blob_detect") ?: p.bit("home_flag", 24) ?: (p.hexBit("cfg", 43)?.let { it || (p.hexBit("cfg", 44) == true) })
+        blob?.let { add("switch", "nozzle_blob_detect", if (it) "on" else "off") }
+    }
+    p.hexBit("cfg", 19)?.let { add("switch", "print_cache", if (it) "on" else "off") }
+    p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 20) and 3L) != 0L }?.let { add("switch", "door_open_check", if (it) "on" else "off") }
+    (p.hexBit("stat", 23) ?: p.bit("home_flag", 23))?.let { add("binary_sensor", "door_open", if (it) "on" else "off") }
     val light = (p["lights_report"] as? JsonArray)?.mapNotNull { it as? JsonObject }?.firstOrNull { it.str("node") == "chamber_light" }?.str("mode")
     add("light", "chamber_light", if (light == "on") "on" else "off")
     for ((key, raw) in listOf("cooling_fan" to "cooling_fan_speed", "aux_fan" to "big_fan1_speed", "chamber_fan" to "big_fan2_speed")) {
@@ -211,13 +256,44 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     val speed = when (p.int("spd_lvl")) { 1 -> "silent"; 3 -> "sport"; 4 -> "ludicrous"; else -> "standard" }
     add("select", "printing_speed", speed, buildJsonObject { putJsonArray("options") { listOf("silent", "standard", "sport", "ludicrous").forEach { add(JsonPrimitive(it)) } } })
     add("sensor", "speed_profile", speed)
+    val deviceObj = p.o("device") ?: r.o("device")
+    val extruder = deviceObj?.o("extruder")
+    val extruderInfo = (extruder?.get("info") as? JsonArray)?.mapNotNull { it as? JsonObject }
+    if (!extruderInfo.isNullOrEmpty()) {
+        extruderInfo.forEach { entry ->
+            val id = entry.int("id")
+            val rawTemp = entry.str("temp")?.toLongOrNull() ?: entry.int("temp")?.toLong()
+            val temp = rawTemp?.let { (it and 0xFFFFL).toDouble() }
+            val target = rawTemp?.let { ((it ushr 16) and 0xFFFFL).toInt() }
+            val prefix = if (id == 1) "left" else if (id == 0) "right" else null
+            if (prefix != null) {
+                temp?.let { add("sensor", "${prefix}_nozzle_temp", it) }
+                target?.let { add("sensor", "${prefix}_target_nozzle_temp", it) }
+                target?.let { add("number", "target_${prefix}_nozzle_temperature", it, buildJsonObject { put("min", 0); put("max", 320) }) }
+            }
+        }
+        val extState = extruder.int("state") ?: 0
+        val activeIdx = (extState ushr 4) and 0xF
+        add("sensor", "active_nozzle", if (activeIdx == 1) "left" else "right")
+    }
+    val nozzleInfo = (deviceObj?.o("nozzle")?.get("info") as? JsonArray)?.mapNotNull { it as? JsonObject }
+    if (!nozzleInfo.isNullOrEmpty()) {
+        nozzleInfo.forEach { entry ->
+            val id = entry.int("id")
+            val prefix = if (id == 1) "left" else if (id == 0) "right" else null
+            if (prefix != null) {
+                (entry.str("diameter") ?: entry.dbl("diameter")?.toString())?.let { add("sensor", "${prefix}_nozzle_diameter", it) }
+                entry.str("type")?.let { add("sensor", "${prefix}_nozzle_type", nozzleTypeName(it)) }
+            }
+        }
+    }
     add("sensor", "nozzle_temp", p.dbl("nozzle_temper"))
     add("sensor", "target_nozzle_temp", p.dbl("nozzle_target_temper")?.toInt())
     add("sensor", "bed_temp", p.dbl("bed_temper"))
     add("sensor", "target_bed_temp", p.dbl("bed_target_temper")?.toInt())
     (p.str("bed_type") ?: p.str("print_bed_type"))?.let { add("sensor", "print_bed_type", it) }
     // Only enclosed printers with a chamber sensor report it (X1, H2); P1S shows none, like Handy. Newer firmware moved it under device.ctc.
-    (p.dbl("chamber_temper") ?: p.o("device")?.o("ctc")?.o("info")?.dbl("temp"))?.takeIf { c.model.startsWith("X1") || c.model.startsWith("H2") || c.model.startsWith("P2") }?.let { add("sensor", "chamber_temp", it) }
+    (p.dbl("chamber_temper") ?: p.o("device")?.o("ctc")?.o("info")?.dbl("temp"))?.takeIf { c.model.startsWith("X1") || c.model.startsWith("H2") || c.model.startsWith("P2") || c.model.startsWith("X2") }?.let { add("sensor", "chamber_temp", it) }
     val status = if (!online) "offline" else printStatus(p.str("gcode_state"))
     add("sensor", "print_status", status)
     add("sensor", "stage", stageName(p.int("stg_cur")))
@@ -254,14 +330,30 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
         val trays = (a["tray"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
         val isHt = ai >= 128 || a.str("model")?.contains("HT", true) == true || a.str("type")?.contains("HT", true) == true ||
             a.str("model")?.contains("N3S", true) == true || a.str("type")?.contains("N3S", true) == true
+        val isAms2Pro = a.str("model")?.contains("2 Pro", true) == true || a.str("type")?.contains("2 Pro", true) == true ||
+            a.str("model")?.contains("N3F", true) == true || a.str("type")?.contains("N3F", true) == true ||
+            a.str("hw_version")?.contains("N3F", true) == true || a.str("hw")?.contains("N3F", true) == true
         val htId = if (isHt) ai.takeIf { it >= 128 } ?: (128 + htFallback++) else ai
-        val deviceModel = if (isHt) "AMS HT" else "AMS"
-        (ams?.flag("power_on_flag") ?: a.flag("startup_read_option"))?.let { add("switch", "ams_read_on_startup", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_startup") }
-        (ams?.flag("insert_flag") ?: a.flag("tray_read_option"))?.let { add("switch", "ams_read_on_insertion", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_insertion") }
-        (ams?.flag("calibrate_remain_flag") ?: a.flag("calibrate_remain_flag"))?.let { add("switch", "ams_remaining_estimation", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_remaining_estimation") }
-        a.int("humidity")?.let { add("sensor", "humidity_index", 6 - it, device = dev, uid = "AMS_${amsIndex + 1}_humidity_index") }
-        a.int("humidity_raw")?.let { add("sensor", "humidity", it, device = dev, uid = "AMS_${amsIndex + 1}_humidity") }
-        a.dbl("temp")?.let { add("sensor", "ams_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_temperature") }
+        val deviceModel = when {
+            isHt -> "AMS HT"
+            isAms2Pro -> "AMS 2 Pro"
+            else -> "AMS"
+        }
+        (ams?.flag("power_on_flag") ?: a.flag("startup_read_option"))?.let { add("switch", "ams_read_on_startup", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_startup", deviceModel = deviceModel) }
+        (ams?.flag("insert_flag") ?: a.flag("tray_read_option"))?.let { add("switch", "ams_read_on_insertion", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_read_on_insertion", deviceModel = deviceModel) }
+        (ams?.flag("calibrate_remain_flag") ?: a.flag("calibrate_remain_flag"))?.let { add("switch", "ams_remaining_estimation", if (it) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_ams_remaining_estimation", deviceModel = deviceModel) }
+        a.int("humidity")?.let { add("sensor", "humidity_index", 6 - it, device = dev, uid = "AMS_${amsIndex + 1}_humidity_index", deviceModel = deviceModel) }
+        a.int("humidity_raw")?.let { add("sensor", "humidity", it, device = dev, uid = "AMS_${amsIndex + 1}_humidity", deviceModel = deviceModel) }
+        a.dbl("temp")?.let { add("sensor", "ams_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_temperature", deviceModel = deviceModel) }
+        val isDrying = a.flag("is_drying") ?: a.flag("drying_status") ?: (a.int("drying_status")?.let { it != 0 }) ?: false
+        add("binary_sensor", "drying", if (isDrying) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_drying", deviceModel = deviceModel)
+        (a.dbl("remain_time") ?: a.dbl("drying_remain_time") ?: a.dbl("remaining_drying_time"))?.let {
+            val hours = if (it > 48) it / 60.0 else it
+            add("sensor", "remaining_drying_time", hours, device = dev, uid = "AMS_${amsIndex + 1}_remaining_drying_time", deviceModel = deviceModel)
+        }
+        (a.dbl("target_temp") ?: a.dbl("drying_temp"))?.let {
+            add("sensor", "drying_target_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_drying_target_temp", deviceModel = deviceModel)
+        }
         (0 until if (deviceModel == "AMS HT") 1 else 4).forEach { ti ->
             val t = trays.firstOrNull { it.int("id") == ti } ?: JsonObject(emptyMap())
             val type = t.str("tray_type").orEmpty()
@@ -339,11 +431,35 @@ fun xcamCommand(sequenceId: String, module: String, enabled: Boolean, printHalt:
 fun printOptionCommand(sequenceId: String, option: String, enabled: Boolean) = printCommand(sequenceId, "print_option", buildJsonObject {
     put(option, enabled)
     if (option == "auto_recovery") put("option", if (enabled) 1 else 0)
+    if (option == "nozzle_blob_detect") put("nozzle_blob_detect_v2", if (enabled) 1 else 0)
+})
+
+fun systemCommand(sequenceId: String, command: String, fields: JsonObject = JsonObject(emptyMap())) = buildJsonObject {
+    put("system", JsonObject(buildJsonObject { put("sequence_id", sequenceId); put("command", command) } + fields))
+}
+
+fun doorStatCommand(sequenceId: String, config: Int) = systemCommand(sequenceId, "set_door_stat", buildJsonObject {
+    put("config", config)
+})
+
+fun printCacheCommand(sequenceId: String, enable: Boolean) = systemCommand(sequenceId, "print_cache_set", buildJsonObject {
+    put("config", enable)
 })
 
 fun amsUserSettingCommand(sequenceId: String, amsId: Int, startup: Boolean, insertion: Boolean, remaining: Boolean) =
     printCommand(sequenceId, "ams_user_setting", buildJsonObject {
         put("ams_id", amsId); put("startup_read_option", startup); put("tray_read_option", insertion); put("calibrate_remain_flag", remaining)
+    })
+
+fun amsDryingCommand(sequenceId: String, amsId: Int, temp: Int, durationMinutes: Int, rotateTray: Boolean) =
+    printCommand(sequenceId, "ams_drying", buildJsonObject {
+        put("ams_id", amsId); put("temp", temp); put("duration", durationMinutes)
+        put("rotate_tray", rotateTray); put("action", "start")
+    })
+
+fun amsStopDryingCommand(sequenceId: String, amsId: Int) =
+    printCommand(sequenceId, "ams_drying", buildJsonObject {
+        put("ams_id", amsId); put("action", "stop")
     })
 
 /** The printer reached directly, presented as a small Home Assistant (see the file comment). */
@@ -637,6 +753,8 @@ class DirectPrinter(
                 val v = d.s("value")?.toDoubleOrNull()?.toInt() ?: 0
                 when (rowOf(target)?.key) {
                     "target_nozzle_temperature" -> gcode("M104 S$v\n")
+                    "target_left_nozzle_temperature" -> gcode("M104 T1 S$v\n")
+                    "target_right_nozzle_temperature" -> gcode("M104 T0 S$v\n")
                     "target_bed_temperature" -> gcode("M140 S$v\n")
                 }
             }
@@ -705,13 +823,27 @@ class DirectPrinter(
             "bambu_lab/calibration" -> publish(calibrationCommand(nextSeq(), d.s("option")?.toIntOrNull() ?: 0))
             "bambu_lab/xcam_control_set" -> publish(xcamCommand(nextSeq(), d.s("module_name").orEmpty(), d.s("enable") == "true", d.s("print_halt") == "true"))
             "bambu_lab/print_option" -> {
-                val option = listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable")
+                val option = listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable", "prompt_sound")
                     .firstOrNull { d[it] != null } ?: throw ApiException("No print option")
                 val enabled = d[option].flagValue() ?: throw ApiException("Invalid print option")
-                publish(printOptionCommand(nextSeq(), option, enabled))
+                val mapped = if (option == "prompt_sound") "sound_enable" else option
+                publish(printOptionCommand(nextSeq(), mapped, enabled))
             }
+            "bambu_lab/set_door_stat" -> publish(doorStatCommand(nextSeq(), d.s("config")?.toIntOrNull() ?: if (d.s("enable") == "true") 1 else 0))
+            "bambu_lab/print_cache_set" -> publish(printCacheCommand(nextSeq(), d.s("config")?.toBooleanStrictOrNull() ?: (d.s("enable") == "true")))
             "bambu_lab/ams_user_setting" -> publish(amsUserSettingCommand(nextSeq(), d.s("ams_id")?.toIntOrNull() ?: 0,
                 d.s("startup_read_option") == "true", d.s("tray_read_option") == "true", d.s("calibrate_remain_flag") == "true"))
+            "bambu_lab/start_filament_drying" -> {
+                val amsId = d.s("ams_id")?.toIntOrNull() ?: 0
+                val temp = d.s("temp")?.toIntOrNull() ?: 50
+                val durationHours = d.s("duration")?.toIntOrNull() ?: 4
+                val rotateTray = d.s("rotate_tray") != "false"
+                publish(amsDryingCommand(nextSeq(), amsId, temp, durationHours * 60, rotateTray))
+            }
+            "bambu_lab/stop_filament_drying" -> {
+                val amsId = d.s("ams_id")?.toIntOrNull() ?: 0
+                publish(amsStopDryingCommand(nextSeq(), amsId))
+            }
             "switch/turn_on", "switch/turn_off" -> {} // live view is always available directly
             "homeassistant/update_entity" -> publish(buildJsonObject { putJsonObject("pushing") { put("sequence_id", nextSeq()); put("command", "pushall") } })
             else -> throw ApiException("Needs Home Assistant")

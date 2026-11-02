@@ -325,7 +325,13 @@ object Repo {
     private fun alert(before: List<Printer>?, now: List<Printer>) {
         val n = notifier ?: return
         if (visible || !notify || demo) return
-        for (p in now) printEvent(before?.firstOrNull { it.serial == p.serial }, p)?.let { n.show(p.serial, it.title, it.text) }
+        for (p in now) printEvent(before?.firstOrNull { it.serial == p.serial }, p)?.let { n.showEvent(it) }
+    }
+
+    /** Dispatches a printer control action (pause, resume, stop) by serial, e.g. from a push notification action. */
+    fun actPrinter(serial: String, action: String, err: (String) -> Unit = {}) {
+        val p = state.value.printers?.firstOrNull { it.serial == serial } ?: return
+        p.button(action, err)
     }
 
     fun stop() { liveJob?.cancel(); liveJob = null }
@@ -356,11 +362,13 @@ fun Printer.setSpeed(option: String, err: (String) -> Unit) = Repo.act(err) {
     call("select", "select_option", buildJsonObject { put("entity_id", info.ids["select.printing_speed"]!!); put("option", option) })
 }
 
-/** [which]: "nozzle", "bed" or "chamber". */
+/** [which]: "nozzle", "bed" or "chamber", or "left_nozzle", "right_nozzle". */
 fun Printer.setTarget(which: String, celsius: Int, err: (String) -> Unit) = Repo.act(err) {
     val key = "number.target_${which}_temperature"
-    val id = info.ids[key] ?: throw ApiException("Home Assistant can't set the $which temperature")
-    setNumber(id, setpoint(key, celsius))
+    val fallbackKey = if (which.endsWith("nozzle")) "number.target_nozzle_temperature" else null
+    val targetKey = if (info.ids.containsKey(key)) key else fallbackKey ?: key
+    val id = info.ids[targetKey] ?: throw ApiException("Home Assistant can't set the $which temperature")
+    setNumber(id, setpoint(targetKey, celsius))
 }
 
 fun Printer.setFan(entityId: String, percent: Int, err: (String) -> Unit) = Repo.act(err) {
