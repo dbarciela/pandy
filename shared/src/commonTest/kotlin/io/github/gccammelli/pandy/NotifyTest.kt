@@ -69,4 +69,36 @@ class NotifyTest {
             assertEquals("Problem 1",printEvent(printer("running"),printer("pause",hms=1,code={code}))!!.text)
         }
     }
+
+    @Test
+    fun eventTypesAndActionButtonsAreProvidedForPrintStates() {
+        val finish = printEvent(printer("running"), printer("finish"))!!
+        assertEquals(PrintEventType.FINISH, finish.type)
+        assertEquals(emptyList(), finish.actions)
+        assertEquals("SN", finish.serial)
+
+        val failed = printEvent(printer("running"), printer("failed", error = true))!!
+        assertEquals(PrintEventType.FAILED, failed.type)
+        assertEquals(emptyList(), failed.actions)
+        assertEquals("SN", failed.serial)
+
+        val pausedAttention = printEvent(printer("running"), printer("pause", hms = 1))!!
+        assertEquals(PrintEventType.ATTENTION, pausedAttention.type)
+        assertEquals(listOf(PrintAction.RESUME, PrintAction.STOP), pausedAttention.actions)
+        assertEquals("SN", pausedAttention.serial)
+
+        val runningAttention = printEvent(printer("running"), printer("running", hms = 1, code = { "HMS_0300_0100_0002_0007" }))!!
+        assertEquals(PrintEventType.ATTENTION, runningAttention.type)
+        assertEquals(listOf(PrintAction.PAUSE, PrintAction.STOP), runningAttention.actions)
+        assertEquals("SN", runningAttention.serial)
+
+        val dispatched = mutableListOf<Triple<String, String, String>>()
+        val notifier = object : Notifier {
+            override fun show(key: String, title: String, text: String) {
+                dispatched += Triple(key, title, text)
+            }
+        }
+        notifier.showEvent(pausedAttention)
+        assertEquals(listOf(Triple("SN", "X1C needs attention", "Problem 1")), dispatched)
+    }
 }
