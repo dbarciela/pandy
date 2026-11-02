@@ -1923,6 +1923,49 @@ class ScreenTest {
         org.junit.Assert.assertTrue(commands.all { it.first.endsWith("extrude_retract") })
     }
 
+    @Test fun dualNozzlePrinterRendersBothNozzlesAndAllowsTargetSelection() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.left_target_nozzle_temp" to "sensor.left_target_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.right_target_nozzle_temp" to "sensor.right_target_nozzle_temp",
+            "sensor.left_nozzle_diameter" to "sensor.left_nozzle_diameter",
+            "sensor.right_nozzle_diameter" to "sensor.right_nozzle_diameter",
+            "sensor.left_nozzle_type" to "sensor.left_nozzle_type",
+            "sensor.right_nozzle_type" to "sensor.right_nozzle_type",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("45.0"),
+                "sensor.left_target_nozzle_temp" to entity("0"),
+                "sensor.right_nozzle_temp" to entity("220.0"),
+                "sensor.right_target_nozzle_temp" to entity("220"),
+                "sensor.left_nozzle_diameter" to entity("0.4"),
+                "sensor.right_nozzle_diameter" to entity("0.4"),
+                "sensor.left_nozzle_type" to entity("stainless_steel"),
+                "sensor.right_nozzle_type" to entity("hardened_steel"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onAllNodesWithText("L").assertCountEquals(2) // top Chip and NozzleCard
+        compose.onAllNodesWithText("R").assertCountEquals(2)
+        compose.onNodeWithText("0.4 mm Stainless steel", substring = true).assertExists()
+        compose.onNodeWithText("0.4 mm Hardened steel", substring = true).assertExists()
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Left Nozzle (L)").assertExists()
+        compose.onNodeWithText("Right Nozzle (R)").assertExists()
+        compose.onNodeWithText("220°C → 220°C").assertExists()
+        compose.onNodeWithText("Left Nozzle (L)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("45°C").assertExists()
+    }
+
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
         show("Direct LAN connection") { AddDirectScreen() }
         compose.onNodeWithText("Connect",substring=false).assertIsNotEnabled()
