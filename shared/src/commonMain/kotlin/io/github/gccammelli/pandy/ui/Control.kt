@@ -79,15 +79,19 @@ fun ControlScreen(p: Printer) {
             Box(Modifier.fillMaxWidth().height(200.dp).padding(vertical = 8.dp)) {
                 PrinterArt(Modifier.fillMaxSize().padding(horizontal = 60.dp), ams = p.info.ams.isNotEmpty(), lit = p.lightOn)
                 if (p.isDualNozzle) {
-                    Row(Modifier.align(Alignment.TopStart), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Chip("nozzle", p.leftNozzle ?: p.nozzle, p.leftNozzleTarget, label = "L")
-                        Chip("nozzle", p.rightNozzle ?: p.nozzle, p.rightNozzleTarget, label = "R")
+                    Chip("nozzle", p.leftNozzle ?: p.nozzle, p.leftNozzleTarget, Modifier.align(Alignment.TopStart), label = "L")
+                    Chip("nozzle", p.rightNozzle ?: p.nozzle, p.rightNozzleTarget, Modifier.align(Alignment.TopEnd), label = "R")
+                    if (p.chamber != null) {
+                        Chip("chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.BottomStart))
+                        Chip("bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomEnd))
+                    } else {
+                        Chip("bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
                     }
                 } else {
                     Chip("nozzle", p.nozzle, p.nozzleTarget, Modifier.align(Alignment.TopStart))
+                    if (p.chamber != null) Chip("chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
+                    Chip("bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
                 }
-                if (p.chamber != null) Chip("chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
-                Chip("bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MiniCard("Speed", speedLabel(p.speed), Modifier.weight(1f)) { if (p.printing) sheet = "speed" else err("Speed can only be changed while printing") }
@@ -132,11 +136,11 @@ private fun ChamberInfoSheet(p: Printer, close: () -> Unit) = Sheet(close, "Cham
 @Composable
 private fun Chip(which: String, now: Double?, target: Double?, modifier: Modifier = Modifier, label: String? = null) =
     Row(modifier.clip(RoundedCornerShape(50)).background(C.Card).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        HeaterGlyph(which, Modifier.size(14.dp))
         if (label != null) {
-            Spacer(Modifier.width(3.dp))
-            T(label, 11.sp, C.Sub, FontWeight.Bold)
+            T(label, 12.sp, C.Sub, FontWeight.Bold)
+            Spacer(Modifier.width(4.dp))
         }
+        HeaterGlyph(which, Modifier.size(14.dp))
         Spacer(Modifier.width(5.dp))
         TempText(now, target, 14.sp, 10.sp)
     }

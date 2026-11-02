@@ -197,20 +197,32 @@ private fun PrinterPage(p: Printer) = Box(Modifier.fillMaxSize().background(C.Ca
     val amsColors = p.ams.firstOrNull()?.second.orEmpty().map { Color(if (it?.known == true) it.color else 0xFFDDDDDD) }
     PrinterArt(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 4.dp), ams = p.info.ams.isNotEmpty(), lit = p.lightOn, amsColors = amsColors)
     if (p.isDualNozzle) {
-        Row(Modifier.align(Alignment.TopStart), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TempChip(null, "nozzle", p.leftNozzle ?: p.nozzle, p.leftNozzleTarget, label = "L")
-            TempChip(null, "nozzle", p.rightNozzle ?: p.nozzle, p.rightNozzleTarget, label = "R")
+        TempChip(null, "nozzle", p.leftNozzle ?: p.nozzle, p.leftNozzleTarget, Modifier.align(Alignment.TopStart), label = "L")
+        TempChip(null, "nozzle", p.rightNozzle ?: p.nozzle, p.rightNozzleTarget, Modifier.align(Alignment.TopEnd), label = "R")
+        if (p.chamber != null) {
+            TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.BottomStart))
+            TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomEnd))
+        } else {
+            TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
+            p.ams.firstOrNull()?.let { (a, _) ->
+                p.amsNum(a, "sensor.humidity_index")?.let { h ->
+                    Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
+                        Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     } else {
         TempChip(Icons.Outlined.Settings, "nozzle", p.nozzle, p.nozzleTarget, Modifier.align(Alignment.TopStart))
-    }
-    if (p.chamber != null) TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
-    TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
-    p.ams.firstOrNull()?.let { (a, _) ->
-        p.amsNum(a, "sensor.humidity_index")?.let { h ->
-            Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
-                Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+        if (p.chamber != null) TempChip(null, "chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
+        TempChip(null, "bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
+        p.ams.firstOrNull()?.let { (a, _) ->
+            p.amsNum(a, "sensor.humidity_index")?.let { h ->
+                Row(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.WaterDrop, null, Modifier.size(14.dp), tint = humidityColor(h.toInt()))
+                    Spacer(Modifier.width(4.dp)); T("${h.toInt()}", 13.sp, weight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -222,11 +234,11 @@ fun humidityColor(level: Int) = when { level <= 2 -> Color(0xFF00A33E); level ==
 @Composable
 private fun TempChip(icon: ImageVector?, which: String, now: Double?, target: Double?, modifier: Modifier = Modifier, label: String? = null) =
     Row(modifier.clip(CircleShape).background(C.Fill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        HeaterGlyph(which, Modifier.size(14.dp))
         if (label != null) {
-            Spacer(Modifier.width(3.dp))
-            T(label, 11.sp, C.Sub, FontWeight.Bold)
+            T(label, 12.sp, C.Sub, FontWeight.Bold)
+            Spacer(Modifier.width(4.dp))
         }
+        HeaterGlyph(which, Modifier.size(14.dp))
         Spacer(Modifier.width(5.dp))
         TempText(now, target, 14.sp, 10.sp)
     }
@@ -361,45 +373,21 @@ fun NozzleCard(p: Printer, modifier: Modifier = Modifier, onClick: () -> Unit) =
     }
     if (p.isDualNozzle) {
         Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
+            val lTemp = p.leftNozzle ?: p.nozzle
+            val lTarget = p.leftNozzleTarget ?: p.nozzleTarget
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T("L", 11.sp, if (p.activeNozzle == "left") C.Accent else C.Sub, FontWeight.Bold)
-                        if (p.activeNozzle == "left") {
-                            Spacer(Modifier.width(3.dp))
-                            Box(Modifier.size(4.dp).clip(CircleShape).background(C.Accent))
-                        }
-                    }
-                    val lTemp = p.leftNozzle ?: p.nozzle
-                    val lTarget = p.leftNozzleTarget ?: p.nozzleTarget
-                    T(lTemp?.toInt()?.toString() ?: "--", 22.sp, tempColor(lTemp, lTarget), FontWeight.Bold)
+                    T(lTemp?.toInt()?.toString() ?: "--", 26.sp, tempColor(lTemp, lTarget), FontWeight.Bold)
                     T("/${lTarget?.toInt() ?: 0}°C", 11.sp, C.Sub)
-                    val lDiam = p.state("sensor.left_nozzle_diameter") ?: p.state("sensor.nozzle_diameter")
-                    val lType = p.state("sensor.left_nozzle_type") ?: p.state("sensor.nozzle_type")
-                    if (lDiam != null) {
-                        T("$lDiam mm ${nozzleType(lType)}", 10.sp, C.Sub)
-                    }
                 }
             }
-            ToolheadArt(Modifier.size(48.dp, 72.dp))
+            ToolheadArt(Modifier.size(56.dp, 84.dp))
+            val rTemp = p.rightNozzle ?: p.nozzle
+            val rTarget = p.rightNozzleTarget ?: p.nozzleTarget
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T("R", 11.sp, if (p.activeNozzle != "left") C.Accent else C.Sub, FontWeight.Bold)
-                        if (p.activeNozzle != "left") {
-                            Spacer(Modifier.width(3.dp))
-                            Box(Modifier.size(4.dp).clip(CircleShape).background(C.Accent))
-                        }
-                    }
-                    val rTemp = p.rightNozzle ?: p.nozzle
-                    val rTarget = p.rightNozzleTarget ?: p.nozzleTarget
-                    T(rTemp?.toInt()?.toString() ?: "--", 22.sp, tempColor(rTemp, rTarget), FontWeight.Bold)
+                    T(rTemp?.toInt()?.toString() ?: "--", 26.sp, tempColor(rTemp, rTarget), FontWeight.Bold)
                     T("/${rTarget?.toInt() ?: 0}°C", 11.sp, C.Sub)
-                    val rDiam = p.state("sensor.right_nozzle_diameter") ?: p.state("sensor.nozzle_diameter")
-                    val rType = p.state("sensor.right_nozzle_type") ?: p.state("sensor.nozzle_type")
-                    if (rDiam != null) {
-                        T("$rDiam mm ${nozzleType(rType)}", 10.sp, C.Sub)
-                    }
                 }
             }
         }
