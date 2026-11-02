@@ -39,6 +39,14 @@ class PrinterAmsReportsTest {
         assertEquals(listOf("ams0"), h2Single.map { it.first.device })
     }
 
+    @Test fun invalidH2SnowDoesNotFallBackToLegacyTrayOnSingleAms() {
+        for (snow in listOf("70000", "-1", "\"abc\"")) {
+            val report = """{"print":{"ams":{"tray_now":"1","ams":[{"id":0}]},"device":{"extruder":{"info":[{"id":0,"snow":$snow}]}}}}"""
+            val active = entities("H2D", report).filter { it.first.key == "tray" && it.second.attrs.s("active") == "true" }
+            assertTrue(active.isEmpty(), "snow=$snow")
+        }
+    }
+
     @Test fun h2ExtrudersUseUnitAndSlotInsteadOfLegacyTray() {
         val rows = entities("H2D", """{"print":{"ams":{"tray_now":"1","ams":[{"id":0},{"id":1},{"id":128}]},"device":{"extruder":{"info":[{"id":0,"temp":14418140,"snow":257},{"id":1,"temp":13107390,"snow":32768}]}}}}""")
         assertEquals("220", rows.first { it.first.key == "right_nozzle_temp" }.second.state)

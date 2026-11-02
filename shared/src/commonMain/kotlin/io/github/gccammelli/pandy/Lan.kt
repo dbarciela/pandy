@@ -260,6 +260,7 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     // snow is unit << 8 | slot. A present but unknown value must not fall back to tray_now.
     val isH2 = c.model.startsWith("H2", ignoreCase = true)
     val snow = if (isH2) extruders.mapNotNull { it.int("snow")?.takeIf { value -> value in 0..65535 } } else emptyList()
+    val snowReported = isH2 && extruders.any { it["snow"] != null }
     val allowLegacyTray = !isH2 || (ams?.get("ams") as? JsonArray).orEmpty().size <= 1
     val modules = (r.o("info")?.get("module") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
     var htFallback = 0
@@ -289,13 +290,13 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
             val type = t.str("tray_type").orEmpty()
             val name = t.str("tray_sub_brands")?.takeIf { it.isNotBlank() }?.let { if (it.startsWith(type)) "Bambu $it" else it } ?: type
             val trayId = if (isHt) htId else ai * 4 + ti
-            add("sensor", "tray", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, if (snow.isNotEmpty()) snow.any { (it shr 8) == htId && (it and 255) == ti } else allowLegacyTray && trayId.toString() == trayNow, ti + 1), dev, "AMS_${amsIndex + 1}_tray_${ti + 1}", deviceModel, htId)
+            add("sensor", "tray", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, if (snowReported) snow.any { (it shr 8) == htId && (it and 255) == ti } else allowLegacyTray && trayId.toString() == trayNow, ti + 1), dev, "AMS_${amsIndex + 1}_tray_${ti + 1}", deviceModel, htId)
         }
     }
     p.o("vt_tray")?.let { t ->
         val type = t.str("tray_type").orEmpty()
         val name = t.str("tray_sub_brands")?.takeIf { it.isNotBlank() } ?: type
-        add("sensor", "external_spool", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, if (snow.isNotEmpty()) snow.any { (it shr 8) == 255 && (it and 255) != 255 } else trayNow == "254", 0), "ext", "ExternalSpool_external_spool")
+        add("sensor", "external_spool", if (type.isEmpty()) "Empty" else name, trayAttrs(t, name, if (snowReported) snow.any { (it shr 8) == 255 && (it and 255) != 255 } else trayNow == "254", 0), "ext", "ExternalSpool_external_spool")
     }
     return out
 }
