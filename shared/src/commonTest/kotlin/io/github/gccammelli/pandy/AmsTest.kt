@@ -139,6 +139,38 @@ class AmsTest {
         assertEquals(true, ht.supportsDrying())
         assertEquals("AMS HT", ht.displayName())
         assertNull(ht.modelBadge())
+
+        val amsLite = AmsInfo("ams_lite", 1, "AMS Lite", emptyMap(), emptyMap())
+        assertEquals(false, amsLite.isAms2Pro())
+        assertEquals(false, amsLite.supportsDrying())
+        assertEquals("AMS A", amsLite.displayName())
+        assertEquals("AMS Lite", amsLite.modelBadge())
+    }
+
+    @Test
+    fun dryingKeyAndDeviceNameDetectionInHomeAssistant() {
+        val serial = "TEST_SERIAL_HA"
+        val devices = JsonArray(listOf(
+            json.parseToJsonElement("""{"id":"p1","identifiers":[["bambu_lab","$serial"]]}""").jsonObject,
+            json.parseToJsonElement("""{"id":"ams_user_named","via_device_id":"p1","model":"AMS","name_by_user":"My AMS 2 Pro","identifiers":[["bambu_lab","${serial}_AMS_0"]]}""").jsonObject,
+            json.parseToJsonElement("""{"id":"ams_drying_status","via_device_id":"p1","model":"AMS","identifiers":[["bambu_lab","${serial}_AMS_1"]]}""").jsonObject
+        ))
+        val entities = JsonArray(listOf(
+            json.parseToJsonElement("""{"entity_id":"sensor.ams0_tray_1","device_id":"ams_user_named","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_1"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams0_target_dry","device_id":"ams_user_named","platform":"bambu_lab","unique_id":"ams0_target_dry_temp"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams0_remain_dry","device_id":"ams_user_named","platform":"bambu_lab","unique_id":"ams0_remain_dry_time"}""").jsonObject,
+
+            json.parseToJsonElement("""{"entity_id":"sensor.ams1_tray_1","device_id":"ams_drying_status","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_1"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"binary_sensor.ams1_status","device_id":"ams_drying_status","platform":"bambu_lab","unique_id":"ams1_drying_status"}""").jsonObject,
+        ))
+        val amsList = printersFrom(devices, entities).single().ams
+        assertEquals(2, amsList.size)
+        assertEquals("AMS 2 Pro", amsList[0].model)
+        assertEquals("drying_target_temp", amsList[0].ids.entries.first { it.value == "sensor.ams0_target_dry" }.key.substringAfter('.'))
+        assertEquals("remaining_drying_time", amsList[0].ids.entries.first { it.value == "sensor.ams0_remain_dry" }.key.substringAfter('.'))
+
+        assertEquals("AMS 2 Pro", amsList[1].model)
+        assertEquals("drying", amsList[1].ids.entries.first { it.value == "binary_sensor.ams1_status" }.key.substringAfter('.'))
     }
 
     @Test
@@ -165,5 +197,10 @@ class AmsTest {
         assertEquals(true, printer.amsIsDrying(amsInfo))
         assertEquals(3.5, printer.amsDryingRemaining(amsInfo))
         assertEquals(55.0, printer.amsDryingTargetTemp(amsInfo))
+
+        val emptyPrinter = Printer(printerInfo, emptyMap())
+        assertEquals(false, emptyPrinter.amsIsDrying(amsInfo))
+        assertNull(emptyPrinter.amsDryingRemaining(amsInfo))
+        assertNull(emptyPrinter.amsDryingTargetTemp(amsInfo))
     }
 }

@@ -339,6 +339,15 @@ class DirectPrinterTest {
             assertEquals("ams_filament_drying", stopSent.s("command"))
             assertEquals("0", stopSent.s("mode"))
             assertEquals("0", stopSent.s("ams_id"))
+
+            printer.command("bambu_lab/start_filament_drying", "rotate_tray" to "false")
+            val startDefault = link.sent.last().o("print")!!
+            assertEquals("50", startDefault.s("temp"))
+            assertEquals("4", startDefault.s("duration"))
+            assertEquals("false", startDefault.s("rotate_tray"))
+
+            printer.command("bambu_lab/stop_filament_drying")
+            assertEquals("0", link.sent.last().o("print")!!.s("ams_id"))
         } finally { printer.stop() }
     }
 }

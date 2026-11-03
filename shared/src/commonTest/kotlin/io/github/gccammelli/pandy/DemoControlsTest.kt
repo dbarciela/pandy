@@ -109,6 +109,12 @@ class DemoControlsTest {
         assertEquals("off", ha.state("binary_sensor", "AMS_1_drying").s("state"))
         assertEquals("0.0", ha.state("sensor", "AMS_1_remaining_drying_time").s("state"))
 
+        // Default duration and temp fallback
+        ha.command("bambu_lab/start_filament_drying")
+        assertEquals("on", ha.state("binary_sensor", "AMS_1_drying").s("state"))
+        assertEquals("4.0", ha.state("sensor", "AMS_1_remaining_drying_time").s("state"))
+        assertEquals("50.0", ha.state("sensor", "AMS_1_drying_target_temp").s("state"))
+
         val info = ha.printers().single()
         val printer = Printer(info, emptyMap())
         val ams = info.ams.first()

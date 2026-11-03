@@ -143,6 +143,9 @@ class LanBoundaryTest {
         assertEquals("0", stopCmd.s("mode"))
         assertEquals("0", stopCmd.s("ams_id"))
 
+        val startCmdNoRotate = amsDryingCommand("101", 0, 50, 4, false)["print"]!!.jsonObject
+        assertEquals("false", startCmdNoRotate.s("rotate_tray"))
+
         val amsReport = """{
             "print": {
                 "ams": {
@@ -169,6 +172,49 @@ class LanBoundaryTest {
         assertEquals("3.0", amsEntities.getValue("remaining_drying_time").state)
         assertEquals("55.0", amsEntities.getValue("drying_target_temp").state)
         assertEquals("48.0", amsEntities.getValue("ams_temp").state)
+
+        // Test drying_status string format and module info detection
+        val moduleReport = """{
+            "print": {
+                "ams": {
+                    "ams": [
+                        {
+                            "id": "0",
+                            "drying_status": "drying",
+                            "tray": []
+                        },
+                        {
+                            "id": "1",
+                            "drying_status": "idle",
+                            "tray": []
+                        },
+                        {
+                            "id": "128",
+                            "type": "N3S",
+                            "tray": []
+                        }
+                    ]
+                }
+            },
+            "info": {
+                "module": [
+                    {"name": "n3f/0", "hw_ver": "N3F02", "project_name": "AMS 2 Pro"},
+                    {"name": "ams/1", "hw_ver": "AMS08", "project_name": "AMS"},
+                    {"name": "n3s/128", "hw_ver": "N3S01", "project_name": "AMS HT"}
+                ]
+            }
+        }"""
+        val moduleEntities = lanEntities(config, obj(moduleReport), true, null)
+        val ams0Rows = moduleEntities.filter { it.first.device == "ams0" }
+        assertEquals("AMS 2 Pro", ams0Rows.first().first.deviceModel)
+        assertEquals("on", ams0Rows.first { it.first.key == "drying" }.second.state)
+
+        val ams1Rows = moduleEntities.filter { it.first.device == "ams1" }
+        assertEquals("AMS 2 Pro", ams1Rows.first().first.deviceModel)
+        assertEquals("off", ams1Rows.first { it.first.key == "drying" }.second.state)
+
+        val amsHtRows = moduleEntities.filter { it.first.device == "ams128" }
+        assertEquals("AMS HT", amsHtRows.first().first.deviceModel)
 
         val legacyAmsWithTemp = """{
             "print": {

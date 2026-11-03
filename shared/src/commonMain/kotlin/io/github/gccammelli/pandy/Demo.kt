@@ -293,15 +293,15 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             "bambu_lab/print_option" -> listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable")
                 .firstOrNull { d[it] != null }?.let { option -> d.s(option)?.let { value -> rows.firstOrNull { it.key == option }?.let { setById(id(it), if (value == "true") "on" else "off") } } }
             "bambu_lab/start_filament_drying" -> {
-                rows.firstOrNull { it.key == "drying" }?.let { setById(id(it), "on") }
+                setById(id(rows.first { it.key == "drying" }), "on")
                 val duration = d.s("duration")?.toDoubleOrNull() ?: 4.0
-                rows.firstOrNull { it.key == "remaining_drying_time" }?.let { setById(id(it), duration.toString()) }
+                setById(id(rows.first { it.key == "remaining_drying_time" }), duration.toString())
                 val temp = d.s("temp")?.toDoubleOrNull() ?: 50.0
-                rows.firstOrNull { it.key == "drying_target_temp" }?.let { setById(id(it), temp.toString()) }
+                setById(id(rows.first { it.key == "drying_target_temp" }), temp.toString())
             }
             "bambu_lab/stop_filament_drying" -> {
-                rows.firstOrNull { it.key == "drying" }?.let { setById(id(it), "off") }
-                rows.firstOrNull { it.key == "remaining_drying_time" }?.let { setById(id(it), "0.0") }
+                setById(id(rows.first { it.key == "drying" }), "off")
+                setById(id(rows.first { it.key == "remaining_drying_time" }), "0.0")
             }
             "bambu_lab/ams_user_setting" -> {
                 val ams = d.s("ams_id")?.toIntOrNull() ?: 0
