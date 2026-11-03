@@ -28,6 +28,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.Before
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -2128,6 +2129,58 @@ class ScreenTest {
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("0.4mm Stainless steel", substring = true).assertExists()
         compose.onNodeWithText("45°C").assertExists()
+        compose.onNodeWithText("Switching Extruder...").assertExists()
+        assertTrue(commands.any { it.first.endsWith("select_extruder") && it.second.contains("\"extruder_index\":1") })
+    }
+
+    @Test fun dualNozzleExtrudeAndRetractTargetSelectedToolhead() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.left_target_nozzle_temp" to "sensor.left_target_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.right_target_nozzle_temp" to "sensor.right_target_nozzle_temp",
+            "sensor.left_nozzle_diameter" to "sensor.left_nozzle_diameter",
+            "sensor.right_nozzle_diameter" to "sensor.right_nozzle_diameter",
+            "sensor.left_nozzle_type" to "sensor.left_nozzle_type",
+            "sensor.right_nozzle_type" to "sensor.right_nozzle_type",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.left_target_nozzle_temp" to entity("210"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.right_target_nozzle_temp" to entity("215"),
+                "sensor.left_nozzle_diameter" to entity("0.4"),
+                "sensor.right_nozzle_diameter" to entity("0.4"),
+                "sensor.left_nozzle_type" to entity("stainless_steel"),
+                "sensor.right_nozzle_type" to entity("hardened_steel"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        // When right nozzle is selected and active, no switching banner and extrude sends nozzle=right
+        compose.onNodeWithText("Switching Extruder...").assertDoesNotExist()
+        val arrows = compose.onAllNodes(hasClickAction() and !hasText("", substring = true) and !hasContentDescription("Close") and !hasContentDescription("Back") and !hasContentDescription("Close sheet") and !isToggleable())
+        // Retract
+        arrows[0].performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.any { it.first.endsWith("extrude_retract") } }
+        val lastRetract = json.parseToJsonElement(commands.last { it.first.endsWith("extrude_retract") }.second).jsonObject
+        assertEquals("Retract", lastRetract.s("type"))
+        assertEquals("right", lastRetract.s("nozzle"))
+
+        // Extrude
+        arrows[1].performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.count { it.first.endsWith("extrude_retract") } >= 2 }
+        val lastExtrude = json.parseToJsonElement(commands.last { it.first.endsWith("extrude_retract") }.second).jsonObject
+        assertEquals("Extrude", lastExtrude.s("type"))
+        assertEquals("right", lastExtrude.s("nozzle"))
     }
 
     private fun sampleX2DPrinter(): Printer {

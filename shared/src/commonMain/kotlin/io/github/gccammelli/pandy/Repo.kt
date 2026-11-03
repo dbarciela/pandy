@@ -378,8 +378,24 @@ fun Printer.move(axis: String, mm: Int, err: (String) -> Unit) = Repo.act(err) {
 }
 
 /** [extrude] true pushes filament out, false pulls it back. */
-fun Printer.extrude(extrude: Boolean, err: (String) -> Unit) = Repo.act(err) {
-    bambu("extrude_retract", this@extrude, buildJsonObject { put("type", if (extrude) "Extrude" else "Retract"); put("force", false) })
+fun Printer.extrude(extrude: Boolean, err: (String) -> Unit) = extrude(extrude, null, err)
+
+/** [extrude] true pushes filament out, false pulls it back; [nozzle] optional target nozzle ("left" or "right"). */
+fun Printer.extrude(extrude: Boolean, nozzle: String?, err: (String) -> Unit) = Repo.act(err) {
+    bambu("extrude_retract", this@extrude, buildJsonObject {
+        put("type", if (extrude) "Extrude" else "Retract")
+        put("force", false)
+        if (nozzle != null) put("nozzle", nozzle)
+    })
+}
+
+/** [nozzle] "left" or "right" switches the active toolhead on dual-nozzle printers. */
+fun Printer.selectExtruder(nozzle: String, err: (String) -> Unit) = Repo.act(err) {
+    val idx = if (nozzle == "left") 1 else 0
+    bambu("select_extruder", this@selectExtruder, buildJsonObject {
+        put("extruder_index", idx)
+        put("nozzle", nozzle)
+    })
 }
 
 fun Printer.skip(ids: List<Int>, err: (String) -> Unit) = Repo.act(err) {

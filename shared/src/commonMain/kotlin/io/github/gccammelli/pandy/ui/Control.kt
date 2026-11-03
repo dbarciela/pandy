@@ -59,6 +59,7 @@ import io.github.gccammelli.pandy.Printer
 import io.github.gccammelli.pandy.Repo
 import io.github.gccammelli.pandy.extrude
 import io.github.gccammelli.pandy.move
+import io.github.gccammelli.pandy.selectExtruder
 import io.github.gccammelli.pandy.setFan
 import io.github.gccammelli.pandy.setSpeed
 import io.github.gccammelli.pandy.setTarget
@@ -181,17 +182,24 @@ private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
         else if (curNozzle == "right") (p.state("sensor.right_nozzle_type") ?: p.state("sensor.nozzle_type"))
         else p.state("sensor.nozzle_type")
     val targetKey = if (curNozzle == "left") "left_nozzle" else if (curNozzle == "right") "right_nozzle" else "nozzle"
+    val isSwitching = p.isDualNozzle && selectedNozzle != null && p.activeNozzle != null && selectedNozzle != p.activeNozzle
 
     Sheet(close, "Nozzle & Extruder", centeredTitle = true, confirm = null) {
         if (p.isDualNozzle) {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(C.Fill).padding(3.dp)) {
                 val isLeft = selectedNozzle == "left"
                 Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isLeft) C.Card else Color.Transparent)
-                    .clickable { selectedNozzle = "left" }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    .clickable {
+                        selectedNozzle = "left"
+                        if (p.activeNozzle != "left") p.selectExtruder("left", err)
+                    }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                     T("Left Nozzle (L)", 13.sp, if (isLeft) C.Accent else C.Sub, if (isLeft) FontWeight.Bold else FontWeight.Normal)
                 }
                 Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (!isLeft) C.Card else Color.Transparent)
-                    .clickable { selectedNozzle = "right" }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    .clickable {
+                        selectedNozzle = "right"
+                        if (p.activeNozzle != "right") p.selectExtruder("right", err)
+                    }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                     T("Right Nozzle (R)", 13.sp, if (!isLeft) C.Accent else C.Sub, if (!isLeft) FontWeight.Bold else FontWeight.Normal)
                 }
             }
@@ -202,12 +210,13 @@ private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
             Column(Modifier.width(110.dp).clip(RoundedCornerShape(10.dp)).background(C.Fill).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 T("Extruder", 13.sp, C.Text)
                 Gap(10.dp)
-                KeyButton(Icons.Default.ArrowDropUp, enabled = !p.printing && (curTemp ?: 0.0) >= 170) { p.extrude(false, err) } // up: pull filament back
+                KeyButton(Icons.Default.ArrowDropUp, enabled = !p.printing && !isSwitching && (curTemp ?: 0.0) >= 170) { p.extrude(false, curNozzle, err) } // up: pull filament back
                 Gap(16.dp)
-                KeyButton(Icons.Default.ArrowDropDown, enabled = !p.printing && (curTemp ?: 0.0) >= 170) { p.extrude(true, err) }
+                KeyButton(Icons.Default.ArrowDropDown, enabled = !p.printing && !isSwitching && (curTemp ?: 0.0) >= 170) { p.extrude(true, curNozzle, err) }
             }
         }
         if (p.printing) T("Extrusion is unavailable while printing.", 12.sp, C.Sub, modifier = Modifier.padding(top = 6.dp))
+        else if (isSwitching) T("Switching Extruder...", 12.sp, C.Accent, modifier = Modifier.padding(top = 6.dp))
         else if ((curTemp ?: 0.0) < 170) T("Heat the nozzle to 170°C or more before extruding.", 12.sp, C.Sub, modifier = Modifier.padding(top = 6.dp))
         Gap(16.dp)
         T("Nozzle temperature", 14.sp)

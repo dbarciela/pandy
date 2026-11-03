@@ -295,6 +295,10 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
                     .forEach { (key, field) -> rows.firstOrNull { it.device == amsDev && it.key == key }?.let { setById(id(it), if (d.s(field) == "true") "on" else "off") } }
             }
             "switch/turn_on", "switch/turn_off" -> setById(target!!, if (service.endsWith("on")) "on" else "off")
+            "bambu_lab/select_extruder" -> {
+                val nozzle = d.s("nozzle") ?: if (d.s("extruder_index") == "1") "left" else "right"
+                rows.firstOrNull { it.key == "active_nozzle" }?.let { setById(id(it), nozzle) }
+            }
             else -> {} // move_axis, extrude_retract, load/unload: nothing to show in the demo
         }
         delay(150)
