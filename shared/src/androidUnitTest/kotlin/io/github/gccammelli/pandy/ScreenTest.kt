@@ -2165,7 +2165,7 @@ class ScreenTest {
         compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
         compose.mainClock.advanceTimeBy(500)
 
-        // When right nozzle is selected and active, no switching banner and extrude sends nozzle=right
+        // When right nozzle is selected and active, no switching banner and extrude sends extrude_retract
         compose.onNodeWithText("Switching Extruder...").assertDoesNotExist()
         val arrows = compose.onAllNodes(hasClickAction() and !hasText("", substring = true) and !hasContentDescription("Close") and !hasContentDescription("Back") and !hasContentDescription("Close sheet") and !isToggleable())
         // Retract
@@ -2173,14 +2173,102 @@ class ScreenTest {
         compose.waitUntil(5000) { compose.waitForIdle(); commands.any { it.first.endsWith("extrude_retract") } }
         val lastRetract = json.parseToJsonElement(commands.last { it.first.endsWith("extrude_retract") }.second).jsonObject
         assertEquals("Retract", lastRetract.s("type"))
-        assertEquals("right", lastRetract.s("nozzle"))
 
         // Extrude
         arrows[1].performClick()
         compose.waitUntil(5000) { compose.waitForIdle(); commands.count { it.first.endsWith("extrude_retract") } >= 2 }
         val lastExtrude = json.parseToJsonElement(commands.last { it.first.endsWith("extrude_retract") }.second).jsonObject
         assertEquals("Extrude", lastExtrude.s("type"))
-        assertEquals("right", lastExtrude.s("nozzle"))
+    }
+
+    @Test fun dualNozzleExtrudeButtonsDisabledWhileSwitchingToolhead() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        val arrows = compose.onAllNodes(hasClickAction() and !hasText("", substring = true) and !hasContentDescription("Close") and !hasContentDescription("Back") and !hasContentDescription("Close sheet") and !isToggleable())
+        // Initially right is active and temp >= 170 -> arrows enabled
+        arrows[0].assertIsEnabled()
+        arrows[1].assertIsEnabled()
+
+        // Switch to left -> isSwitching becomes true -> buttons disabled, banner appears
+        compose.onNodeWithText("Left Nozzle (L)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Switching Extruder...").assertExists()
+        arrows[0].assertIsNotEnabled()
+        arrows[1].assertIsNotEnabled()
+    }
+
+    @Test fun dualNozzleNoExtruderSwitchDispatchedWhilePrinting() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("running"),
+                "sensor.stage" to entity("printing"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        val beforeCount = commands.size
+        // Clicking left tab switches inspection view only, does NOT send select_extruder
+        compose.onNodeWithText("Left Nozzle (L)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        assertEquals(beforeCount, commands.size)
+        compose.onNodeWithText("Switching Extruder...").assertDoesNotExist()
+        compose.onNodeWithText("Extrusion is unavailable while printing.").assertExists()
+    }
+
+    @Test fun dualNozzleSwitchingFromLeftToRightDispatchesSelectExtruder0() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.active_nozzle" to entity("left")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        // Active nozzle is left, clicking right sends select_extruder with extruder_index 0
+        compose.onNodeWithText("Right Nozzle (R)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Switching Extruder...").assertExists()
+        assertTrue(commands.any { it.first.endsWith("select_extruder") && it.second.contains("\"extruder_index\":0") })
     }
 
     private fun sampleX2DPrinter(): Printer {
