@@ -2060,6 +2060,53 @@ class ScreenTest {
         org.junit.Assert.assertTrue(path.endsWith("set_door_stat"))
         assertEquals("false", body.s("enable"))
         assertEquals("0", body.s("config"))
+
+        commandFailure = "Refused"
+        compose.onAllNodes(isToggleable()).onLast().performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); messages.contains("Refused") }
+        commandFailure = null
+    }
+
+    @Test fun doorClosedControlScreenShowsDoorClosed() {
+        val p = sampleX2DPrinter(doorOpen = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    ControlScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door closed").assertExists()
+    }
+
+    @Test fun doorGlyphAndChipDefaultArgumentsRenderProperly() {
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    androidx.compose.foundation.layout.Column {
+                        io.github.gccammelli.pandy.ui.DoorGlyph()
+                        io.github.gccammelli.pandy.ui.DoorChip(open = false)
+                        io.github.gccammelli.pandy.ui.DoorChip(open = true)
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door closed").assertExists()
+        compose.onNodeWithText("Door open").assertExists()
+    }
+
+    @Test fun doorOpenCheckShowsNotAvailableWhenUnavailable() {
+        val old = Repo.showUnavailable
+        Repo.setShowUnavailable(true)
+        try {
+            show("Print Options") { PrintOptionsScreen(printer) }
+            compose.onNodeWithText("Open Door Detection").performScrollTo().assertExists()
+            compose.onAllNodesWithText("Not available").onFirst().assertExists()
+        } finally {
+            Repo.setShowUnavailable(old)
+        }
     }
 
     @Test fun dualNozzleDevicesScreenShowsBothNozzles() {

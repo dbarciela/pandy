@@ -128,6 +128,9 @@ class LanBoundaryTest {
         val doorCheckCfgPayload = """{"print": {"cfg": "${(1L shl 20).toString(16)}"}}"""
         assertEquals("on", entities(doorCheckCfgPayload).getValue("door_open_check").state)
 
+        val doorCheckHomeFlagPayload = """{"print": {"home_flag": ${1L shl 26}}}"""
+        assertEquals("on", entities(doorCheckHomeFlagPayload).getValue("door_open_check").state)
+
         val doorCmd = doorStatCommand("42", 1)["system"]!!.jsonObject
         assertEquals("set_door_stat", doorCmd.s("command"))
         assertEquals("1", doorCmd.s("config"))
