@@ -76,7 +76,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
 class AndroidNotifier(private val ctx: Context) : Notifier {
     override fun show(key: String, title: String, text: String) {
-        showEvent(PrintEvent(title, text, serial = key))
+        showEvent(PrintEvent(title, text, type = PrintEventType.FINISH, serial = key))
     }
 
     override fun showEvent(event: PrintEvent) {
@@ -92,6 +92,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
             .setContentText(event.text)
             .setContentIntent(ctx.openPandy())
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
             .setCategory(if (isCritical) Notification.CATEGORY_ALARM else Notification.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
 
@@ -112,7 +113,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
                 val bytes = runCatching { Repo.ha?.bytes(imgPath) }.getOrNull()
                 if (bytes != null) {
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    if (bitmap != null) {
+                    if (bitmap != null && nm.activeNotifications.any { it.id == notifId }) {
                         builder.setLargeIcon(bitmap)
                         builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap).bigLargeIcon(null as Bitmap?))
                         nm.notify(notifId, builder.build())

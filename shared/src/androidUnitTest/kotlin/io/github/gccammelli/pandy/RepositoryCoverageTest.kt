@@ -233,4 +233,20 @@ class RepositoryCoverageTest {
             fallenBack.startPrint(p, "cache/a.3mf", 1, null, false, true, true, "hot_plate"); assertNull(bodies.last()["bed_type"])
         } finally { Repo.logout(); Dispatchers.resetMain() }
     }
+
+    @Test fun actPrinterDispatchesActionOrIgnoresMissing() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        boot(emptyMap())
+        val demo = FakeHomeAssistant()
+        val info = demo.printers().single()
+        val p = Printer(info, emptyMap())
+        try {
+            backend(demo)
+            Repo.state.value = UiState(on = true, printers = listOf(p))
+            var errorMessage: String? = null
+            Repo.actPrinter(p.serial, "pause") { errorMessage = it }
+            Repo.actPrinter("NONEXISTENT", "pause") { errorMessage = it }
+            assertNull(errorMessage)
+        } finally { Repo.logout(); Dispatchers.resetMain() }
+    }
 }
