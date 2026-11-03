@@ -2039,6 +2039,18 @@ class ScreenTest {
         }
     }
 
+    @Test fun repoActPrinterDispatchesActionOrIgnoresMissing() {
+        val oldState = Repo.state.value
+        try {
+            Repo.state.value = UiState(on = true, printers = listOf(printer))
+            var errorMessage: String? = null
+            Repo.actPrinter(printer.serial, "pause") { errorMessage = it }
+            Repo.actPrinter("NONEXISTENT", "pause") { errorMessage = it }
+        } finally {
+            Repo.state.value = oldState
+        }
+    }
+
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
         show("Direct LAN connection") { AddDirectScreen() }
         compose.onNodeWithText("Connect",substring=false).assertIsNotEnabled()

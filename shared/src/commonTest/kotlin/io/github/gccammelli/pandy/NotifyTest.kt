@@ -100,5 +100,20 @@ class NotifyTest {
         }
         notifier.showEvent(pausedAttention)
         assertEquals(listOf(Triple("SN", "X1C needs attention", "Problem 1")), dispatched)
+
+        val eventWithoutSerial = PrintEvent(title = "General", text = "Alert", serial = null)
+        notifier.showEvent(eventWithoutSerial)
+        assertEquals(listOf(Triple("SN", "X1C needs attention", "Problem 1"), Triple("pandy", "General", "Alert")), dispatched)
+
+        PrintAction.values().forEach {
+            kotlin.test.assertTrue(it.id.isNotBlank())
+            kotlin.test.assertTrue(it.label.isNotBlank())
+            assertEquals(it, PrintAction.valueOf(it.name))
+        }
+        PrintEventType.values().forEach {
+            assertEquals(it, PrintEventType.valueOf(it.name))
+        }
     }
+
+
 }
