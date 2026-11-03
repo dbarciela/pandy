@@ -1005,15 +1005,16 @@ class ScreenTest {
         compose.onNodeWithText("Next").performClick()
         compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Layer height").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Layer height").performClick()
+        compose.onNodeWithText("Default").performClick()
         compose.mainClock.advanceTimeBy(500)
-        compose.onNode(hasSetTextAction()).performTextReplacement("999")
+        compose.onAllNodes(hasSetTextAction()).onLast().performTextReplacement("999")
         compose.onNodeWithText("Save").assertIsNotEnabled()
-        compose.onNode(hasSetTextAction()).performTextReplacement("0.12")
+        compose.onAllNodes(hasSetTextAction()).onLast().performTextReplacement("0.12")
         compose.onNodeWithText("Save").performClick()
         compose.mainClock.advanceTimeBy(500)
-        compose.onNodeWithText("Generate support").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Expand Support").performScrollTo().performClick()
         compose.onNodeWithText("On").performClick()
+        compose.onNodeWithText("2 changes").assertExists()
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithText("2 changed for this print").performScrollTo().assertExists()
         compose.onNodeWithText("Print (demo)").performClick()
@@ -1075,21 +1076,155 @@ class ScreenTest {
                 mapOf("wall_loops" to "4", "enable_support" to "1"), {}, { values, _ -> result = values })
         } } }
         compose.waitUntil(5000) { compose.onAllNodesWithText("Wall loops").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Wall loops").performClick()
+        compose.onNodeWithText("4 ").assertDoesNotExist()
+        compose.onNodeWithText("4").performClick()
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("Range: 1–20").assertExists()
         compose.onNodeWithContentDescription("Close").performClick()
-        compose.onNodeWithText("Wall loops").performClick()
+        compose.onNodeWithText("4").performClick()
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("Use profile default").performClick()
-        compose.onNodeWithText("Generate support").performClick()
-        compose.mainClock.advanceTimeBy(500)
-        compose.onNodeWithContentDescription("Close").performClick()
-        compose.onNodeWithText("Generate support").performClick()
-        compose.mainClock.advanceTimeBy(500)
-        compose.onAllNodesWithText("Profile default").onLast().performClick()
+        compose.onNodeWithText("Reset to profile").performClick()
         compose.onNodeWithText("Done").performClick()
         assertEquals(emptyMap<String, String>(), result)
+    }
+
+    private val richSchema = """{"version":1,"settings":[
+        {"group":"Quality","key":"layer_height","label":"Layer height","type":"number","unit":"mm","min":0.05,"max":0.6},
+        {"group":"Quality","key":"seam_position","label":"Seam position","type":"choice","options":[{"value":"nearest","label":"Nearest"},{"value":"back","label":"Back"}]},
+        {"group":"Quality","key":"ironing_type","label":"Ironing","type":"choice","options":[{"value":"no ironing","label":"Off"},{"value":"top","label":"Top surfaces"},{"value":"topmost","label":"Topmost surface"},{"value":"solid","label":"All solid layers"}]},
+        {"group":"Strength","key":"sparse_infill_density","label":"Infill density","type":"number","unit":"%","min":0,"max":100},
+        {"group":"Strength","key":"sparse_infill_pattern","label":"Infill pattern","type":"choice","options":[{"value":"grid","label":"Grid"},{"value":"line","label":"Rectilinear"},{"value":"triangles","label":"Triangles"},{"value":"tri-hexagon","label":"Tri-hexagon"},{"value":"honeycomb","label":"Honeycomb"},{"value":"gyroid","label":"Gyroid"},{"value":"cubic","label":"Cubic"},{"value":"adaptivecubic","label":"Adaptive cubic"},{"value":"extra","label":"Extra"}]},
+        {"group":"Support","key":"support_type","label":"Support type","type":"choice","options":[{"value":"normal(auto)","label":"Normal (automatic)"},{"value":"tree(auto)","label":"Tree (automatic)"}]},
+        {"group":"Adhesion","key":"brim_type","label":"Brim type","type":"choice","options":[{"value":"auto_brim","label":"Auto"},{"value":"no_brim","label":"None"},{"value":"outer_only","label":"Outer"},{"value":"inner_only","label":"Inner"},{"value":"outer_and_inner","label":"Outer and inner"}]},
+        {"group":"Mystery","key":"mystery_speed","label":"Mystery speed","type":"number","unit":"mm/s","min":1,"max":500}]}"""
+
+    private fun showRich(saved: Map<String, String> = emptyMap(), onDone: (Map<String, String>) -> Unit = {}) {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(richSchema) }).also { testHttpClients += it }
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), saved, {}, { values, _ -> onDone(values) })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Search 8 settings").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun groupsCollapseAndExpandAndStartOpenWhereSettingsAreChanged() {
+        showRich(mapOf("sparse_infill_density" to "35"))
+        compose.onNodeWithText("1 modified · 5 settings").assertDoesNotExist()
+        compose.onNodeWithText("1 modified · 2 settings").assertExists()
+        compose.onNodeWithText("Infill density").assertExists()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Expand Quality").performClick()
+        compose.onNodeWithText("Layer height").assertExists()
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithText("1 change").assertExists()
+    }
+
+    @Test fun numbersStepInsideTheirRangeAndOpenTheKeypad() {
+        showRich(mapOf("layer_height" to "0.55"))
+        compose.onNodeWithContentDescription("Increase Layer height").performClick()
+        compose.onNodeWithText("0.6 mm").assertExists()
+        compose.onNodeWithContentDescription("Increase Layer height").performClick()
+        compose.onNodeWithText("0.6 mm").assertExists()
+        compose.onNodeWithContentDescription("Decrease Layer height").performClick()
+        compose.onNodeWithText("0.55 mm").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Range: 0.05–0.6 mm").assertExists()
+    }
+
+    @Test fun choicesUseSegmentsAndPickersAndCanBeReset() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Reset to profile").assertExists()
+        compose.onNodeWithText("Back").performClick() // tapping the chosen segment returns to the profile
+        compose.onNodeWithText("Reset to profile").assertDoesNotExist()
+        compose.onNodeWithText("Ironing").performScrollTo()
+        compose.onNodeWithText("Profile default", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Topmost surface").performClick()
+        compose.onNodeWithText("Topmost surface").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("ironing_type" to "topmost"), result)
+    }
+
+    @Test fun searchFindsSettingsAcrossGroupsAndTheModifiedFilterListsOnlyChanges() {
+        showRich(mapOf("mystery_speed" to "120"))
+        compose.onNodeWithText("Search 8 settings").assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("infill")
+        compose.onNodeWithText("2 results").assertExists()
+        compose.onNodeWithText("Infill density").assertExists()
+        compose.onAllNodesWithText("Strength").onFirst().assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("infill gyroid")
+        compose.onNodeWithText("1 result").assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("zzz")
+        compose.onNodeWithText("No settings match your search.").assertExists()
+        compose.onNodeWithContentDescription("Clear search").performClick()
+        compose.onNodeWithText("Modified").performClick()
+        compose.onNodeWithText("Mystery speed").assertExists()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithText("Reset to profile").performClick()
+        compose.onNodeWithText("Nothing changed for this print yet.").assertExists()
+        compose.onNodeWithText("All").performClick()
+        compose.onNodeWithText("Layer height").assertExists()
+    }
+
+    @Test fun infillDensityHasPresetsAndASliderOnceSet() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithContentDescription("Expand Strength").performClick()
+        compose.onNodeWithText("Medium 20").performClick()
+        compose.onNode(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(50f) }
+        compose.onNodeWithText("50 %").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("sparse_infill_density" to "50"), result)
+    }
+
+    @Test fun visualPickersDrawEveryPatternBrimAndSupportStyle() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        compose.onNodeWithContentDescription("Expand Strength").performClick()
+        compose.onAllNodesWithText("Profile default")[0].performClick() // the first picker in view
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Gyroid").performClick()
+        compose.onNodeWithText("Gyroid").assertExists()
+        listOf("Support" to "Tree (automatic)", "Adhesion" to "Outer").forEach { (group, pick) ->
+            compose.onNodeWithContentDescription("Expand $group").performScrollTo().performClick()
+            compose.onNodeWithText(if (group == "Support") "Support type" else "Brim type").performScrollTo()
+            compose.onAllNodesWithText("Profile default").onLast().performClick()
+            compose.mainClock.advanceTimeBy(500)
+            compose.onNodeWithText(pick).performClick()
+        }
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("sparse_infill_pattern" to "gyroid", "support_type" to "tree(auto)", "brim_type" to "outer_only"), result)
+    }
+
+    @Test fun slicerSettingsEvidenceScreens() {
+        val dir = System.getenv("PANDY_SLICER_UI_EVIDENCE") ?: return
+        fun shot(name: String) = compose.runOnIdle {
+            val view = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+            java.io.File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        showRich(mapOf("layer_height" to "0.12", "sparse_infill_density" to "35", "sparse_infill_pattern" to "gyroid", "brim_type" to "outer_only"))
+        shot("overview")
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        shot("strength")
+        compose.onNodeWithText("Gyroid").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        shot("pattern-picker")
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("wall infill")
+        shot("search")
+    }
+
+    @Test fun unknownGroupsStillGetAnIconAndWork() {
+        showRich()
+        compose.onNodeWithContentDescription("Expand Mystery").performScrollTo().performClick()
+        compose.onNodeWithText("Mystery speed").assertExists()
     }
 
     @Test fun advancedSettingsHandleAConnectionFailureWithoutAReason() {
