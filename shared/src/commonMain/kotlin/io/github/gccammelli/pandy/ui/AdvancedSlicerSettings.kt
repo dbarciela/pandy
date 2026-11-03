@@ -71,6 +71,7 @@ import io.github.gccammelli.pandy.choiceStyle
 import io.github.gccammelli.pandy.initiallyOpenGroups
 import io.github.gccammelli.pandy.matches
 import io.github.gccammelli.pandy.settingArt
+import io.github.gccammelli.pandy.sliderRange
 import io.github.gccammelli.pandy.stepped
 import kotlinx.coroutines.CancellationException
 
@@ -270,7 +271,7 @@ private fun NumberControl(setting: SlicerSetting, value: String?, edit: () -> Un
 private fun DensityControls(setting: SlicerSetting, value: String?, change: (String?) -> Unit) {
     val now = value?.toFloatOrNull()
     if (now != null) Slider(now, { change(setting.withinRange(kotlin.math.round(it).toDouble())) }, Modifier.padding(top = 6.dp).semantics { contentDescription = setting.label },
-        valueRange = (setting.min?.toFloat() ?: 0f)..(setting.max?.toFloat() ?: 100f),
+        valueRange = setting.sliderRange(),
         colors = SliderDefaults.colors(thumbColor = C.Accent, activeTrackColor = C.Accent, inactiveTrackColor = C.Track))
     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         setting.densityPresets().forEach { (name, preset) ->

@@ -1097,14 +1097,23 @@ class ScreenTest {
         {"group":"Strength","key":"sparse_infill_pattern","label":"Infill pattern","type":"choice","options":[{"value":"grid","label":"Grid"},{"value":"line","label":"Rectilinear"},{"value":"triangles","label":"Triangles"},{"value":"tri-hexagon","label":"Tri-hexagon"},{"value":"honeycomb","label":"Honeycomb"},{"value":"gyroid","label":"Gyroid"},{"value":"cubic","label":"Cubic"},{"value":"adaptivecubic","label":"Adaptive cubic"},{"value":"extra","label":"Extra"}]},
         {"group":"Support","key":"support_type","label":"Support type","type":"choice","options":[{"value":"normal(auto)","label":"Normal (automatic)"},{"value":"tree(auto)","label":"Tree (automatic)"}]},
         {"group":"Adhesion","key":"brim_type","label":"Brim type","type":"choice","options":[{"value":"auto_brim","label":"Auto"},{"value":"no_brim","label":"None"},{"value":"outer_only","label":"Outer"},{"value":"inner_only","label":"Inner"},{"value":"outer_and_inner","label":"Outer and inner"}]},
+        {"group":"Speed","key":"travel_speed","label":"Travel","type":"number","unit":"mm/s","min":1,"max":500},
         {"group":"Mystery","key":"mystery_speed","label":"Mystery speed","type":"number","unit":"mm/s","min":1,"max":500}]}"""
+
+    /** Draws the window so the Canvas-based previews actually run. */
+    private fun drawWindow() = compose.runOnIdle {
+        val view = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        org.junit.Assert.assertTrue(bitmap.getPixel(view.width / 2, view.height / 2) != 0)
+    }
 
     private fun showRich(saved: Map<String, String> = emptyMap(), onDone: (Map<String, String>) -> Unit = {}) {
         val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(richSchema) }).also { testHttpClients += it }
         compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
             AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), saved, {}, { values, _ -> onDone(values) })
         } } }
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Search 8 settings").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Search 9 settings").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun groupsCollapseAndExpandAndStartOpenWhereSettingsAreChanged() {
@@ -1150,7 +1159,7 @@ class ScreenTest {
 
     @Test fun searchFindsSettingsAcrossGroupsAndTheModifiedFilterListsOnlyChanges() {
         showRich(mapOf("mystery_speed" to "120"))
-        compose.onNodeWithText("Search 8 settings").assertExists()
+        compose.onNodeWithText("Search 9 settings").assertExists()
         compose.onNode(hasSetTextAction()).performTextReplacement("infill")
         compose.onNodeWithText("2 results").assertExists()
         compose.onNodeWithText("Infill density").assertExists()
@@ -1188,46 +1197,51 @@ class ScreenTest {
         compose.onNodeWithContentDescription("Expand Strength").performClick()
         compose.onAllNodesWithText("Profile default")[0].performClick() // the first picker in view
         compose.mainClock.advanceTimeBy(500)
+        drawWindow()
         compose.onNodeWithText("Gyroid").performClick()
         compose.onNodeWithText("Gyroid").assertExists()
-        listOf("Support" to "Tree (automatic)", "Adhesion" to "Outer").forEach { (group, pick) ->
+        drawWindow() // the chosen pattern's icon on its row
+        listOf("Support" to "Tree (automatic)", "Adhesion" to "Inner").forEach { (group, pick) ->
             compose.onNodeWithContentDescription("Expand $group").performScrollTo().performClick()
             compose.onNodeWithText(if (group == "Support") "Support type" else "Brim type").performScrollTo()
             compose.onAllNodesWithText("Profile default").onLast().performClick()
             compose.mainClock.advanceTimeBy(500)
+            drawWindow()
             compose.onNodeWithText(pick).performClick()
+            drawWindow()
         }
         compose.onNodeWithText("Done").performClick()
-        assertEquals(mapOf("sparse_infill_pattern" to "gyroid", "support_type" to "tree(auto)", "brim_type" to "outer_only"), result)
+        assertEquals(mapOf("sparse_infill_pattern" to "gyroid", "support_type" to "tree(auto)", "brim_type" to "inner_only"), result)
     }
 
-    @Test fun slicerSettingsEvidenceScreens() {
-        val dir = System.getenv("PANDY_SLICER_UI_EVIDENCE") ?: return
-        val schema = System.getenv("PANDY_SLICER_SCHEMA")?.let { java.io.File(it).readText() } ?: richSchema
-        fun shot(name: String) = compose.runOnIdle {
-            val view = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
-            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-            view.draw(Canvas(bitmap))
-            java.io.File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        }
-        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(schema) }).also { testHttpClients += it }
-        val saved = mapOf("layer_height" to "0.12", "sparse_infill_density" to "35", "sparse_infill_pattern" to "gyroid", "brim_type" to "outer_only", "outer_wall_speed" to "120")
-        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
-            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), saved, {}, { _, _ -> })
-        } } }
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Reset all to profile").fetchSemanticsNodes().isNotEmpty() }
-        shot("overview")
-        compose.onNodeWithContentDescription("Collapse Quality").performClick()
-        shot("strength")
-        compose.onAllNodesWithText("Gyroid").onFirst().performClick()
+    @Test fun theCurrentChoiceIsMarkedInThePickerAndCanBeClearedFromIt() {
+        var result: Map<String, String>? = null
+        showRich(mapOf("sparse_infill_pattern" to "gyroid", "ironing_type" to "top"), { result = it })
+        compose.onNodeWithText("Gyroid").performClick()
         compose.mainClock.advanceTimeBy(500)
-        shot("pattern-picker")
+        drawWindow()
+        compose.onNodeWithText("Cubic").performClick() // a different tile than the marked one
+        compose.onNodeWithText("Cubic").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Profile default").performClick() // the sheet's own reset row
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("ironing_type" to "top"), result)
+    }
+
+    @Test fun resultsCanBeEditedAndTheirSheetsClosed() {
+        showRich(mapOf("sparse_infill_pattern" to "gyroid"))
+        compose.onNode(hasSetTextAction()).performTextReplacement("layer height")
+        compose.onNodeWithText("Default").performClick() // opens the keypad from a search result
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("pattern")
+        compose.onNodeWithText("Gyroid").performClick() // a choice picker from a search result
+        compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithContentDescription("Close").performClick()
         compose.onNodeWithText("Modified").performClick()
-        shot("modified")
-        compose.onNodeWithText("All").performClick()
-        compose.onNode(hasSetTextAction()).performTextReplacement("wall")
-        shot("search")
+        compose.onNode(hasSetTextAction()).performTextReplacement("zzz")
+        compose.onNodeWithText("No settings match your search.").assertExists()
+        compose.onNodeWithText("Reset to profile").assertDoesNotExist()
     }
 
     @Test fun unknownGroupsStillGetAnIconAndWork() {

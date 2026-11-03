@@ -19,6 +19,7 @@ class SlicerSettingsViewTest {
         assertEquals(ChoiceStyle.Picker, choice("Only one").choiceStyle())
         assertEquals(ChoiceStyle.Picker, choice("A", "B", "C", "D", "E").choiceStyle())
         assertEquals(ChoiceStyle.Picker, choice("Normal (automatic)", "Tree").choiceStyle())
+        assertEquals(ChoiceStyle.Picker, choice("Ten chars!!", "Ten chars!!", "Ten chars!!", "Ten chars!!").choiceStyle())
         assertEquals(ChoiceStyle.Picker, choice("Eleven chars", "Twelve chars", "Another long", "More length").choiceStyle())
     }
 
@@ -41,6 +42,9 @@ class SlicerSettingsViewTest {
         assertEquals(0.05, number().stepSize())
         assertEquals(1.0, number("brim_width", "mm", 0.0, 30.0).stepSize())
         assertEquals(1.0, number("plain", "", 0.0, 3.0).stepSize())
+        assertEquals(0.05, SlicerSetting("G", "k", "K", "number", "mm").stepSize()) // no range sent: the fine step
+        assertEquals(0f..100f, SlicerSetting("G", "k", "K", "number").sliderRange())
+        assertEquals(0.05f..0.6f, number().sliderRange())
     }
 
     @Test fun steppingStaysInRangeAndFormatsCleanly() {

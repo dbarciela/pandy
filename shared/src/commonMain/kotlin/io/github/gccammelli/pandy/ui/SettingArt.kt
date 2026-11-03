@@ -21,8 +21,8 @@ import kotlin.math.sqrt
 
 /** A small line drawing of an infill pattern, a brim or a support style, named as in [io.github.gccammelli.pandy.settingArt]. */
 @Composable
-internal fun SettingArt(art: String, color: Color, size: Dp, modifier: Modifier = Modifier) =
-    Canvas(modifier.size(size)) {
+internal fun SettingArt(art: String, color: Color, size: Dp) =
+    Canvas(Modifier.size(size)) {
         val s = this.size.minDimension
         val line = Stroke(width = s / 28f, cap = StrokeCap.Round)
         when (art.substringBefore(':')) {

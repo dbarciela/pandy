@@ -63,3 +63,6 @@ internal fun settingArt(key: String, value: String): String? = when (key) {
 /** Groups that start open: those with a change, or the first one when nothing is changed. */
 internal fun initiallyOpenGroups(groups: List<String>, changed: Collection<String>): Set<String> =
     (groups.filter { it in changed }.ifEmpty { groups.take(1) }).toSet()
+
+/** The slider's range: the slicer's own bounds, or 0..100 when it sent none. */
+internal fun SlicerSetting.sliderRange(): ClosedFloatingPointRange<Float> = (min ?: 0.0).toFloat()..(max ?: 100.0).toFloat()
