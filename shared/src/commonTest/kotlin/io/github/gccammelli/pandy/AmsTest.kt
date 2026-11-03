@@ -103,10 +103,10 @@ class AmsTest {
         assertEquals("AMS 2 Pro", amsList[1].modelBadge())
         assertEquals(true, amsList[1].supportsDrying())
 
-        // Case 3: Detected via ams_temp
-        assertEquals("AMS 2 Pro", amsList[2].model)
-        assertEquals("AMS 2 Pro", amsList[2].modelBadge())
-        assertEquals(true, amsList[2].supportsDrying())
+        // Case 3: Original AMS with temperature sensor remains standard AMS (not 2 Pro)
+        assertEquals("AMS", amsList[2].model)
+        assertNull(amsList[2].modelBadge())
+        assertEquals(false, amsList[2].supportsDrying())
 
         // Case 4: Legacy AMS 1 remains standard AMS without badge or drying
         assertEquals("AMS", amsList[3].model)
@@ -138,7 +138,7 @@ class AmsTest {
         assertEquals(false, ht.isAms2Pro())
         assertEquals(true, ht.supportsDrying())
         assertEquals("AMS HT", ht.displayName())
-        assertEquals("AMS HT", ht.modelBadge())
+        assertNull(ht.modelBadge())
     }
 
     @Test

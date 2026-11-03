@@ -292,7 +292,7 @@ fun printersFrom(devs: JsonArray, ents: JsonArray): List<PrinterInfo> {
             val hasTemp = rows.any { it.s("translation_key") == "ams_temp" || it.s("entity_id")?.contains("temp") == true }
             val isHt = rawModel.contains("HT", true) || rawModel.contains("N3S", true) || hw.contains("N3S", true) || protocolId?.let { it >= 128 } == true
             val isAms2 = !isHt && (rawModel.contains("2 Pro", true) || rawModel.contains("N3F", true) || rawModel.contains("AMS 2", true) ||
-                hw.contains("N3F", true) || name.contains("2 Pro", true) || hasDrying || (hasTemp && trays.size > 1))
+                hw.contains("N3F", true) || name.contains("2 Pro", true) || hasDrying)
             val model = when {
                 isHt -> "AMS HT"
                 isAms2 -> "AMS 2 Pro"
@@ -470,21 +470,6 @@ fun Printer.setPrintOption(option: String, enabled: Boolean, err: (String) -> Un
     bambu("print_option", this@setPrintOption, buildJsonObject {
         put(option, enabled)
         if (option == "auto_recovery") put("option", if (enabled) 1 else 0)
-        if (option == "nozzle_blob_detect") put("nozzle_blob_detect_v2", if (enabled) 1 else 0)
-    })
-}
-
-/** Changes the open-door warning/pause check firmware setting. */
-fun Printer.setDoorCheck(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
-    bambu("set_door_stat", this@setDoorCheck, buildJsonObject {
-        put("enable", enabled); put("config", if (enabled) 1 else 0)
-    })
-}
-
-/** Toggles caching remote print files to internal/SD storage. */
-fun Printer.setPrintCache(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
-    bambu("print_cache_set", this@setPrintCache, buildJsonObject {
-        put("enable", enabled); put("config", enabled)
     })
 }
 
@@ -620,13 +605,12 @@ fun AmsInfo.isSingleSlot() = model.contains("HT", ignoreCase = true) || model.co
 fun AmsInfo.isAms2Pro() = !isSingleSlot() && (
     model.contains("2 Pro", ignoreCase = true) || model.contains("N3F", ignoreCase = true) || model.contains("AMS 2", ignoreCase = true) ||
     ids.containsKey("binary_sensor.drying") || ids.containsKey("sensor.remaining_drying_time") || ids.containsKey("sensor.drying_target_temp") ||
-    ids.containsKey("sensor.ams_temp") || ids.keys.any { it.contains("drying") }
+    ids.keys.any { it.contains("drying") }
 )
 fun AmsInfo.supportsDrying() = isAms2Pro() || isSingleSlot()
 fun AmsInfo.displayName() = if (isSingleSlot()) "AMS HT" else "AMS ${'A' + index - 1}"
 fun AmsInfo.modelBadge(): String? = when {
     isAms2Pro() -> "AMS 2 Pro"
-    isSingleSlot() -> "AMS HT"
     model.contains("Lite", ignoreCase = true) -> "AMS Lite"
     else -> null
 }

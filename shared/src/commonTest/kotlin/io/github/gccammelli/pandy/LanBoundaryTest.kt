@@ -168,5 +168,23 @@ class LanBoundaryTest {
         assertEquals("3.0", amsEntities.getValue("remaining_drying_time").state)
         assertEquals("55.0", amsEntities.getValue("drying_target_temp").state)
         assertEquals("48.0", amsEntities.getValue("ams_temp").state)
+
+        val legacyAmsWithTemp = """{
+            "print": {
+                "ams": {
+                    "ams": [
+                        {
+                            "id": "0",
+                            "model": "AMS",
+                            "temp": 25.0,
+                            "tray": []
+                        }
+                    ]
+                }
+            }
+        }"""
+        val legacyRows = lanEntities(config, obj(legacyAmsWithTemp), true, null).filter { it.first.device == "ams0" }
+        assertEquals("AMS", legacyRows.first().first.deviceModel)
+        assertFalse(legacyRows.any { it.first.key == "drying" })
     }
 }

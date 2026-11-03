@@ -406,8 +406,7 @@ private fun amsModel(ai: Int, a: JsonObject, modHw: String, modName: String, tra
     val hasTemp = a.dbl("temp")?.let { it > 0.0 } == true
     val isHt = ai >= 128 || modelOrType.contains("HT", true) || modelOrType.contains("N3S", true) || hw.contains("N3S", true) || modName.contains("N3S", true)
     val isAms2 = !isHt && (modelOrType.contains("2 Pro", true) || modelOrType.contains("N3F", true) || modelOrType.contains("AMS 2", true) ||
-        hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) ||
-        hasDrying || (hasTemp && traysCount > 1))
+        hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) || hasDrying)
     return when {
         isHt -> "AMS HT"
         isAms2 -> "AMS 2 Pro"
