@@ -1203,21 +1203,30 @@ class ScreenTest {
 
     @Test fun slicerSettingsEvidenceScreens() {
         val dir = System.getenv("PANDY_SLICER_UI_EVIDENCE") ?: return
+        val schema = System.getenv("PANDY_SLICER_SCHEMA")?.let { java.io.File(it).readText() } ?: richSchema
         fun shot(name: String) = compose.runOnIdle {
             val view = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))
             java.io.File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        showRich(mapOf("layer_height" to "0.12", "sparse_infill_density" to "35", "sparse_infill_pattern" to "gyroid", "brim_type" to "outer_only"))
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(schema) }).also { testHttpClients += it }
+        val saved = mapOf("layer_height" to "0.12", "sparse_infill_density" to "35", "sparse_infill_pattern" to "gyroid", "brim_type" to "outer_only", "outer_wall_speed" to "120")
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), saved, {}, { _, _ -> })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Reset all to profile").fetchSemanticsNodes().isNotEmpty() }
         shot("overview")
         compose.onNodeWithContentDescription("Collapse Quality").performClick()
         shot("strength")
-        compose.onNodeWithText("Gyroid").performClick()
+        compose.onAllNodesWithText("Gyroid").onFirst().performClick()
         compose.mainClock.advanceTimeBy(500)
         shot("pattern-picker")
         compose.onNodeWithContentDescription("Close").performClick()
-        compose.onNode(hasSetTextAction()).performTextReplacement("wall infill")
+        compose.onNodeWithText("Modified").performClick()
+        shot("modified")
+        compose.onNodeWithText("All").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("wall")
         shot("search")
     }
 
