@@ -233,17 +233,19 @@ private fun PrinterPage(p: Printer) = Box(Modifier.fillMaxSize().background(C.Ca
 
 @Composable
 fun DoorGlyph(modifier: Modifier = Modifier, color: Color = C.Sub) {
+    val strokeWidth = with(androidx.compose.ui.platform.LocalDensity.current) { 1.5.dp.toPx() }
     Canvas(modifier) {
         val w = size.width; val h = size.height
-        drawRect(color, androidx.compose.ui.geometry.Offset(w * 0.15f, 0f), androidx.compose.ui.geometry.Size(w * 0.7f, h), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+        drawRect(color, androidx.compose.ui.geometry.Offset(w * 0.15f, 0f), androidx.compose.ui.geometry.Size(w * 0.7f, h), style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth))
         drawCircle(color, radius = w * 0.08f, center = androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.55f))
     }
 }
 
 @Composable
-fun DoorChip(open: Boolean, modifier: Modifier = Modifier) =
+fun DoorChip(open: Boolean, modifier: Modifier = Modifier) {
     Row(
-        modifier.clip(CircleShape)
+        modifier
+            .clip(CircleShape)
             .background(if (open) C.AccentBg else C.Fill)
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -252,6 +254,7 @@ fun DoorChip(open: Boolean, modifier: Modifier = Modifier) =
         Spacer(Modifier.width(5.dp))
         T(if (open) "Door open" else "Door closed", 12.sp, if (open) C.Orange else C.Text, FontWeight.Medium)
     }
+}
 
 fun humidityColor(level: Int) = when { level <= 2 -> Color(0xFF00A33E); level == 3 -> Color(0xFFFFB020); else -> Color(0xFFE5484D) }
 

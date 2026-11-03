@@ -76,6 +76,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("switch", "auto_recovery", "on")
         add("switch", "auto_switch_filament", "off")
         add("switch", "door_open_check", "on")
+        add("binary_sensor", "door_open", "off")
         add("light", "chamber_light", "on")
         add("fan", "cooling_fan", "on", buildJsonObject { put("percentage", 100) })
         add("fan", "aux_fan", "on", buildJsonObject { put("percentage", 70) })
@@ -292,7 +293,8 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
                 .firstOrNull { d[it] != null }?.let { option -> d.s(option)?.let { value -> rows.firstOrNull { it.key == option }?.let { setById(id(it), if (value == "true") "on" else "off") } } }
             "bambu_lab/set_door_stat" -> {
                 val on = d.s("config")?.let { it != "0" } ?: (d.s("enable") == "true")
-                rows.firstOrNull { it.key == "door_open_check" }?.let { setById(id(it), if (on) "on" else "off") }
+                val r = rows.first { it.key == "door_open_check" }
+                setById(id(r), if (on) "on" else "off")
             }
             "bambu_lab/ams_user_setting" -> {
                 val ams = d.s("ams_id")?.toIntOrNull() ?: 0

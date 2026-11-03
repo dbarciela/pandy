@@ -199,8 +199,10 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     // Legacy firmware puts these values in home_flag; newer firmware mirrors them in the hex cfg bitmap.
     (printOptions?.flag("auto_recovery") ?: p.flag("auto_recovery") ?: p.bit("home_flag", 4) ?: p.hexBit("cfg", 16))?.let { add("switch", "auto_recovery", if (it) "on" else "off") }
     (printOptions?.flag("auto_switch_filament") ?: p.flag("auto_switch_filament") ?: p.bit("home_flag", 10) ?: p.hexBit("cfg", 18))?.let { add("switch", "auto_switch_filament", if (it) "on" else "off") }
-    (p.flag("door_open_check") ?: (p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 20) and 3L) != 0L }) ?: p.bit("home_flag", 26))?.let { add("switch", "door_open_check", if (it) "on" else "off") }
-    (p.hexBit("stat", 23) ?: p.bit("home_flag", 23))?.let { add("binary_sensor", "door_open", if (it) "on" else "off") }
+    if (c.model !in listOf("A1", "A1 mini", "P1P")) {
+        (p.flag("door_open_check") ?: (p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 20) and 3L) != 0L }) ?: p.bit("home_flag", 26))?.let { add("switch", "door_open_check", if (it) "on" else "off") }
+        (p.hexBit("stat", 23) ?: p.bit("home_flag", 23))?.let { add("binary_sensor", "door_open", if (it) "on" else "off") }
+    }
     val light = (p["lights_report"] as? JsonArray)?.mapNotNull { it as? JsonObject }?.firstOrNull { it.str("node") == "chamber_light" }?.str("mode")
     add("light", "chamber_light", if (light == "on") "on" else "off")
     for ((key, raw) in listOf("cooling_fan" to "cooling_fan_speed", "aux_fan" to "big_fan1_speed", "chamber_fan" to "big_fan2_speed")) {
@@ -754,7 +756,7 @@ class DirectPrinter(
                 val enabled = d[option].flagValue() ?: throw ApiException("Invalid print option")
                 publish(printOptionCommand(nextSeq(), option, enabled))
             }
-            "bambu_lab/set_door_stat" -> publish(doorStatCommand(nextSeq(), d.s("config")?.toIntOrNull() ?: if (d.s("enable") == "true") 1 else 0))
+            "bambu_lab/set_door_stat" -> publish(doorStatCommand(nextSeq(), (d.s("config")?.toIntOrNull() ?: if (d.s("enable") == "true") 1 else 0).coerceIn(0, 1)))
             "bambu_lab/ams_user_setting" -> publish(amsUserSettingCommand(nextSeq(), d.s("ams_id")?.toIntOrNull() ?: 0,
                 d.s("startup_read_option") == "true", d.s("tray_read_option") == "true", d.s("calibrate_remain_flag") == "true"))
             "switch/turn_on", "switch/turn_off" -> {} // live view is always available directly
