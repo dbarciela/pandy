@@ -2086,15 +2086,19 @@ class ScreenTest {
                 AppTheme {
                     androidx.compose.foundation.layout.Column {
                         io.github.gccammelli.pandy.ui.DoorGlyph()
+                        io.github.gccammelli.pandy.ui.DoorGlyph(color = io.github.gccammelli.pandy.ui.C.Orange)
+                        io.github.gccammelli.pandy.ui.DoorGlyph(androidx.compose.ui.Modifier.size(20.dp), io.github.gccammelli.pandy.ui.C.Sub)
                         io.github.gccammelli.pandy.ui.DoorChip(open = false)
                         io.github.gccammelli.pandy.ui.DoorChip(open = true)
+                        io.github.gccammelli.pandy.ui.DoorChip(open = false, modifier = androidx.compose.ui.Modifier.size(100.dp))
+                        io.github.gccammelli.pandy.ui.DoorChip(open = true, modifier = androidx.compose.ui.Modifier.size(100.dp))
                     }
                 }
             }
         }
         compose.waitForIdle()
-        compose.onNodeWithText("Door closed").assertExists()
-        compose.onNodeWithText("Door open").assertExists()
+        compose.onAllNodesWithText("Door closed").onFirst().assertExists()
+        compose.onAllNodesWithText("Door open").onFirst().assertExists()
     }
 
     @Test fun doorOpenCheckShowsNotAvailableWhenUnavailable() {

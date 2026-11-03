@@ -47,6 +47,11 @@ class DirectPrinterTest {
             val sent3 = link.sent.last().o("system")!!
             assertEquals("set_door_stat", sent3.s("command"))
             assertEquals("0", sent3.s("config"))
+
+            direct.command("bambu_lab/set_door_stat", "config" to "invalid")
+            val sent4 = link.sent.last().o("system")!!
+            assertEquals("set_door_stat", sent4.s("command"))
+            assertEquals("0", sent4.s("config"))
         } finally {
             direct.stop()
         }

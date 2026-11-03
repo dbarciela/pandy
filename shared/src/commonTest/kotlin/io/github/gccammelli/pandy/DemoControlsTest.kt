@@ -36,8 +36,14 @@ class DemoControlsTest {
         val ha = FakeHomeAssistant()
         ha.command("bambu_lab/set_door_stat", "config" to "0")
         assertEquals("off", ha.state("switch", "door_open_check").s("state"))
+        ha.command("bambu_lab/set_door_stat", "config" to "1")
+        assertEquals("on", ha.state("switch", "door_open_check").s("state"))
+        ha.command("bambu_lab/set_door_stat", "enable" to "false")
+        assertEquals("off", ha.state("switch", "door_open_check").s("state"))
         ha.command("bambu_lab/set_door_stat", "enable" to "true")
         assertEquals("on", ha.state("switch", "door_open_check").s("state"))
+        ha.command("bambu_lab/set_door_stat")
+        assertEquals("off", ha.state("switch", "door_open_check").s("state"))
     }
 
     @Test fun controlsUpdateBothControlAndReportedState() = runTest {
