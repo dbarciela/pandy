@@ -1024,6 +1024,7 @@ class ScreenTest {
         compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Reset all to profile").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Reset all to profile").performClick()
+        compose.waitUntil(5000) { compose.onAllNodes(hasText("Done") and isEnabled()).fetchSemanticsNodes().isNotEmpty() } // Done waits for the slicer's settings
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithText("Use the model's profile").performScrollTo().assertExists()
         org.junit.Assert.assertTrue(commands.isEmpty())
