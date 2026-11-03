@@ -112,6 +112,28 @@ class LanBoundaryTest {
             assertEquals(label,entities("""{"print":{"spd_lvl":$level,"subtask_name":" "}}""").getValue("speed_profile").state)
     }
 
+    @Test fun chamberDoorStatusAndDetectionSwitchAreParsedAndCommandsFormatted() {
+        val openDoorPayload = """{"print": {"stat": "46A58008"}}"""
+        assertEquals("on", entities(openDoorPayload, model = "X2D").getValue("door_open").state)
+
+        val homeFlagOpen = """{"print": {"home_flag": ${1L shl 23}}}"""
+        assertEquals("on", entities(homeFlagOpen, model = "X2D").getValue("door_open").state)
+
+        val closedDoorPayload = """{"print": {"stat": "0", "home_flag": 0}}"""
+        assertEquals("off", entities(closedDoorPayload, model = "X2D").getValue("door_open").state)
+
+        val doorCheckPayload = """{"print": {"door_open_check": true}}"""
+        assertEquals("on", entities(doorCheckPayload).getValue("door_open_check").state)
+
+        val doorCheckCfgPayload = """{"print": {"cfg": "${(1L shl 20).toString(16)}"}}"""
+        assertEquals("on", entities(doorCheckCfgPayload).getValue("door_open_check").state)
+
+        val doorCmd = doorStatCommand("42", 1)["system"]!!.jsonObject
+        assertEquals("set_door_stat", doorCmd.s("command"))
+        assertEquals("1", doorCmd.s("config"))
+        assertEquals("42", doorCmd.s("sequence_id"))
+    }
+
     @Test fun globalAmsSettingsTakePrecedenceAndUnknownTraysNeverInventFilament() {
         val report=obj("""{"print":{"ams":{"calibrate_remain_flag":true,"ams":[
             {"id":0,"calibrate_remain_flag":false,"tray":[42,{"id":0,"tray_type":"PLA","tray_sub_brands":""}]},

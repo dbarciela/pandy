@@ -59,6 +59,7 @@ import io.github.gccammelli.pandy.calibrate
 import io.github.gccammelli.pandy.decodeImage
 import io.github.gccammelli.pandy.load
 import io.github.gccammelli.pandy.setAmsSettings
+import io.github.gccammelli.pandy.setDoorCheck
 import io.github.gccammelli.pandy.setPrintOption
 import io.github.gccammelli.pandy.setXcam
 import io.github.gccammelli.pandy.skip
@@ -337,10 +338,15 @@ fun PrintOptionsScreen(p: Printer) {
                     PrinterFlagToggle(p, "First Layer Inspection", "first_layer_inspector", canSend) { next, revert -> p.setXcam("first_layer_inspector", next, p.flagAttribute("first_layer_inspector", "print_halt") ?: false) { message -> revert(); err(message) } }
                     PrinterFlagToggle(p, "Auto-Recover from Step Loss", "auto_recovery", canSend) { next, revert -> p.setPrintOption("auto_recovery", next) { message -> revert(); err(message) } }
                 }
-            Gap(12.dp)
-            if (Repo.showUnavailable) Group {
-                NavRow("Open Door Detection", value = "Not available", labelColor = C.Sub, chevron = false)
-                NavRow("Store Sent Files on External Storage", value = "Not available", labelColor = C.Sub, chevron = false)
+            val hasDoorOption = p.flag("door_open_check") != null
+            if (Repo.showUnavailable || (canSend && hasDoorOption)) {
+                Gap(12.dp)
+                Group {
+                    PrinterFlagToggle(p, "Open Door Detection", "door_open_check", canSend) { next, revert -> p.setDoorCheck(next) { message -> revert(); err(message) } }
+                    if (Repo.showUnavailable) {
+                        NavRow("Store Sent Files on External Storage", value = "Not available", labelColor = C.Sub, chevron = false)
+                    }
+                }
             }
             Gap(12.dp)
             T(if (!canSend) "Home Assistant does not expose these printer settings; direct LAN or demo mode is required." else "Only switches reported by this printer are enabled. Unsupported firmware options stay read-only.", 12.sp, C.Sub, lh = 17.sp, modifier = Modifier.padding(horizontal = 6.dp))

@@ -1966,7 +1966,7 @@ class ScreenTest {
         compose.onNodeWithText("45°C").assertExists()
     }
 
-    private fun sampleX2DPrinter(): Printer {
+    private fun sampleX2DPrinter(doorOpen: Boolean? = null): Printer {
         val extraIds = mapOf(
             "sensor.printer_name" to "sensor.printer_name",
             "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
@@ -1980,9 +1980,12 @@ class ScreenTest {
             "sensor.active_nozzle" to "sensor.active_nozzle"
         )
         val info = printer.info.copy(name = "My X2D", model = "X2D", ids = printer.info.ids + extraIds)
+        val doorSet = if (doorOpen != null) listOf("binary_sensor.door_open" to entity(if (doorOpen) "on" else "off")) else emptyList()
+        val removeList = if (doorOpen == null) listOf("binary_sensor.door_open") else emptyList()
         return variant(
             info = info,
-            set = arrayOf(
+            remove = removeList,
+            set = (listOf(
                 "sensor.printer_name" to entity("My X2D"),
                 "sensor.print_status" to entity("idle"),
                 "sensor.left_nozzle_temp" to entity("15.0"),
@@ -1998,8 +2001,65 @@ class ScreenTest {
                 "sensor.left_nozzle_type" to entity("hardened_steel"),
                 "sensor.right_nozzle_type" to entity("hardened_steel"),
                 "sensor.active_nozzle" to entity("right")
-            )
+            ) + doorSet).toTypedArray()
         )
+    }
+
+    @Test fun doorClosedDevicesScreenShowsDoorClosed() {
+        val p = sampleX2DPrinter(doorOpen = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door closed").assertExists()
+    }
+
+    @Test fun doorOpenDevicesScreenShowsDoorOpen() {
+        val p = sampleX2DPrinter(doorOpen = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door open").assertExists()
+    }
+
+    @Test fun doorOpenControlScreenShowsDoorOpen() {
+        val p = sampleX2DPrinter(doorOpen = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    ControlScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door open").assertExists()
+    }
+
+    @Test fun doorOpenCheckSwitchSendsSetDoorStatAndRestoresOnFailure() {
+        val entityId = "switch.pandy_testserial_door_open_check"
+        val ids = printer.info.ids + ("switch.door_open_check" to entityId)
+        val states = snapshot + (entityId to Entity(entityId, "on", JsonObject(emptyMap())))
+        val p = Printer(printer.info.copy(ids = ids), states)
+        show("Print Options") { PrintOptionsScreen(p) }
+        compose.onNodeWithText("Open Door Detection").performScrollTo().assertExists()
+
+        val before = commands.size
+        compose.onAllNodes(isToggleable()).onLast().performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.size > before }
+        val (path, text) = commands.last()
+        val body = json.parseToJsonElement(text).jsonObject
+        org.junit.Assert.assertTrue(path.endsWith("set_door_stat"))
+        assertEquals("false", body.s("enable"))
+        assertEquals("0", body.s("config"))
     }
 
     @Test fun dualNozzleDevicesScreenShowsBothNozzles() {
