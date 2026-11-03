@@ -323,4 +323,46 @@ class AmsTest {
         assertEquals("AMS 2 Pro", amsList[1].model)
         assertEquals("AMS HT", amsList[2].model)
     }
+
+    @Test fun amsEdgeBranchesAndNullFallbacksCovered() {
+        val stdAms = AmsInfo("std_ams", 1, "AMS", emptyMap(), emptyMap(), null)
+        assertFalse(stdAms.isSingleSlot())
+        assertFalse(stdAms.isAms2Pro())
+        assertFalse(stdAms.supportsDrying())
+        assertNull(stdAms.modelBadge())
+        assertEquals("AMS A", stdAms.displayName())
+        assertEquals(0, stdAms.amsId())
+
+        val htWithoutProto = AmsInfo("ht_ams", 2, "AMS HT", emptyMap(), emptyMap(), null)
+        assertTrue(htWithoutProto.isSingleSlot())
+        assertFalse(htWithoutProto.isAms2Pro())
+        assertTrue(htWithoutProto.supportsDrying())
+        assertNull(htWithoutProto.modelBadge())
+        assertEquals("AMS HT", htWithoutProto.displayName())
+        assertEquals(128, htWithoutProto.amsId())
+
+        val p = Printer(PrinterInfo("p1", "SERIAL", "Printer", "X1C", null, emptyMap(), listOf(stdAms), emptyList()), emptyMap())
+        assertFalse(p.amsIsDrying(stdAms))
+        assertNull(p.amsDryingRemaining(stdAms))
+        assertNull(p.amsDryingTargetTemp(stdAms))
+
+        val amsWithDryingEntities = stdAms.copy(ids = mapOf(
+            "binary_sensor.drying" to "drying_active",
+            "sensor.remaining_drying_time" to "drying_rem",
+            "sensor.drying_target_temp" to "drying_target"
+        ))
+        assertTrue(amsWithDryingEntities.isAms2Pro())
+        assertTrue(amsWithDryingEntities.supportsDrying())
+        assertEquals("AMS 2 Pro", amsWithDryingEntities.modelBadge())
+
+        val statesWithDrying = mapOf(
+            "drying_active" to Entity("drying_active", "off", JsonObject(emptyMap())),
+            "drying_rem" to Entity("drying_rem", "2.5", JsonObject(emptyMap())),
+            "drying_target" to Entity("drying_target", "50.0", JsonObject(emptyMap()))
+        )
+        val pDrying = Printer(PrinterInfo("p1", "SERIAL", "Printer", "X1C", null, emptyMap(), listOf(amsWithDryingEntities), emptyList()), statesWithDrying)
+        assertFalse(pDrying.amsIsDrying(amsWithDryingEntities))
+        assertEquals(2.5, pDrying.amsDryingRemaining(amsWithDryingEntities))
+        assertEquals(50.0, pDrying.amsDryingTargetTemp(amsWithDryingEntities))
+    }
 }

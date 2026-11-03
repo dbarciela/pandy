@@ -242,5 +242,40 @@ class LanBoundaryTest {
         val legacyRows = lanEntities(config, obj(legacyAmsWithTemp), true, null).filter { it.first.device == "ams0" }
         assertEquals("AMS", legacyRows.first().first.deviceModel)
         assertFalse(legacyRows.any { it.first.key == "drying" })
+
+        // AMS 2 Pro reporting drying_temp fallback and idle status
+        val ams2IdleReport = """{
+            "print": {
+                "ams": {
+                    "ams": [
+                        {
+                            "id": "0",
+                            "drying_status": "idle",
+                            "drying_temp": 50.0,
+                            "remain_time": 0.0,
+                            "tray": []
+                        }
+                    ]
+                }
+            },
+            "info": {
+                "module": [
+                    {"name": "n3f/0", "hw_ver": "N3F01", "project_name": "AMS 2 Pro"}
+                ]
+            }
+        }"""
+        val idleRows = lanEntities(config, obj(ams2IdleReport), true, null).filter { it.first.device == "ams0" }
+        assertEquals("AMS 2 Pro", idleRows.first().first.deviceModel)
+        assertEquals("off", idleRows.first { it.first.key == "drying" }.second.state)
+        assertEquals("50.0", idleRows.first { it.first.key == "drying_target_temp" }.second.state)
+        assertEquals("0.0", idleRows.first { it.first.key == "remaining_drying_time" }.second.state)
+
+        // Alternate module names (ams_f1_0, ams_1)
+        val altModuleReport = """{
+            "print": {"ams": {"ams": [{"id": 0, "tray": []}]}},
+            "info": {"module": [{"name": "ams_f1_0", "hw_ver": "AMS_F1", "project_name": "Lite"}]}
+        }"""
+        val altRows = lanEntities(config, obj(altModuleReport), true, null).filter { it.first.device == "ams0" }
+        assertEquals("AMS Lite", altRows.first().first.deviceModel)
     }
 }
