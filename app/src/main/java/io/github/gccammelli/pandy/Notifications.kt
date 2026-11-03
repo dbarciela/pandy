@@ -57,7 +57,7 @@ private fun actionIntent(ctx: Context, serial: String, action: String, notifId: 
         putExtra(EXTRA_ACTION, action)
         putExtra(EXTRA_NOTIF_ID, notifId)
     }
-    val reqCode = (serial.hashCode() * 31) + action.hashCode()
+    val reqCode = (serial.hashCode() * 31 + action.hashCode()) * 31 + notifId
     return PendingIntent.getBroadcast(ctx, reqCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 }
 
@@ -96,7 +96,12 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
 
         for (action in event.actions) {
-            builder.addAction(R.drawable.ic_stat, action.label, actionIntent(ctx, event.serial.orEmpty(), action.id, notifId))
+            val actIntent = actionIntent(ctx, event.serial.orEmpty(), action.id, notifId)
+            val actionBuilder = NotificationCompat.Action.Builder(R.drawable.ic_stat, action.label, actIntent)
+            if (action.id == "stop") {
+                actionBuilder.setAuthenticationRequired(true)
+            }
+            builder.addAction(actionBuilder.build())
         }
 
         nm.notify(notifId, builder.build())
@@ -148,7 +153,12 @@ class WatchService : Service() {
                 } else {
                     builder.addAction(R.drawable.ic_stat, "Pause", actionIntent(this, p.serial, "pause", 1))
                 }
-                builder.addAction(R.drawable.ic_stat, "Stop", actionIntent(this, p.serial, "stop", 1))
+                val stopAction = NotificationCompat.Action.Builder(
+                    R.drawable.ic_stat,
+                    "Stop",
+                    actionIntent(this, p.serial, "stop", 1)
+                ).setAuthenticationRequired(true).build()
+                builder.addAction(stopAction)
             }
             return builder.build()
         }
@@ -156,9 +166,9 @@ class WatchService : Service() {
         ServiceCompat.startForeground(this, 1, note("Watching your printer"), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         Repo.start()
         job = CoroutineScope(Dispatchers.Main).launch {
-            Repo.state.map { it.printer() }.distinctUntilChanged().collect { p ->
+            Repo.state.map { it.on to it.printer() }.distinctUntilChanged().collect { (on, p) ->
                 val text = when {
-                    !Repo.state.value.on -> null
+                    !on -> null
                     p == null -> "Connecting…"
                     p.printing -> "${p.name}: ${p.status} ${p.progress}%"
                     else -> "${p.name}: ${if (p.online) "idle" else "offline"}"
