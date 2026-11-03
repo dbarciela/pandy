@@ -120,9 +120,6 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("binary_sensor", "drying", "off", device = amsDev, uid = "AMS_1_drying")
         add("sensor", "remaining_drying_time", 0.0, device = amsDev, uid = "AMS_1_remaining_drying_time")
         add("sensor", "drying_target_temp", 50.0, device = amsDev, uid = "AMS_1_drying_target_temp")
-        add("binary_sensor", "drying", "off", device = amsDev, uid = "AMS_1_drying")
-        add("sensor", "remaining_drying_time", 0.0, device = amsDev, uid = "AMS_1_remaining_drying_time")
-        add("sensor", "drying_target_temp", 50.0, device = amsDev, uid = "AMS_1_drying_target_temp")
         add("sensor", "external_spool", "Generic PLA", tray("Generic PLA", "PLA", "#F98C36FF", -1), extDev, "ExternalSpool_external_spool")
         layerFromProgress()
     }

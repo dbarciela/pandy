@@ -29,6 +29,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.Before
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -2969,7 +2970,8 @@ class ScreenTest {
             ids = baseAms.ids + mapOf(
                 "binary_sensor.drying" to "binary_sensor.drying_active",
                 "sensor.remaining_drying_time" to "sensor.drying_remaining",
-                "sensor.drying_target_temp" to "sensor.drying_target"
+                "sensor.drying_target_temp" to "sensor.drying_target",
+                "sensor.ams_temp" to "sensor.ams_temp_val"
             )
         )
         val p = variant(
@@ -2977,7 +2979,8 @@ class ScreenTest {
             set = arrayOf(
                 "binary_sensor.drying_active" to entity(if (drying) "on" else "off"),
                 "sensor.drying_remaining" to entity(if (drying) "4.2" else "0.0"),
-                "sensor.drying_target" to entity("55.0")
+                "sensor.drying_target" to entity("55.0"),
+                "sensor.ams_temp_val" to entity("42.0")
             )
         )
         return p to ams2Pro
@@ -2987,14 +2990,17 @@ class ScreenTest {
         val (ams2ProPrinter, ams2Pro) = sampleAms2ProPrinter(drying = false)
         val (dryingPrinter, _) = sampleAms2ProPrinter(drying = true)
 
+        var errMessage = ""
         val mode = androidx.compose.runtime.mutableStateOf("screen")
         compose.setContent {
             CompositionLocalProvider(LocalPlatform provides platform) {
                 AppTheme {
                     when (mode.value) {
                         "screen" -> FilamentScreen(ams2ProPrinter)
-                        "idle_sheet" -> AmsDryingSheet(ams2ProPrinter, ams2Pro, {}) {}
-                        "drying_sheet" -> AmsDryingSheet(dryingPrinter, ams2Pro, {}) {}
+                        "devices_idle" -> DevicesTab(st.copy(printers = listOf(ams2ProPrinter)), ams2ProPrinter)
+                        "devices_drying" -> DevicesTab(st.copy(printers = listOf(dryingPrinter)), dryingPrinter)
+                        "idle_sheet" -> AmsDryingSheet(ams2ProPrinter, ams2Pro, {}) { errMessage = it }
+                        "drying_sheet" -> AmsDryingSheet(dryingPrinter, ams2Pro, {}) { errMessage = it }
                     }
                 }
             }
@@ -3004,6 +3010,15 @@ class ScreenTest {
         compose.onNodeWithText("AMS 2 Pro").assertExists()
         compose.onNodeWithText("Filament drying").assertExists()
 
+        // Test DevicesScreen badge and drying indicator
+        compose.runOnIdle { mode.value = "devices_idle" }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("AMS 2 Pro").onFirst().assertExists()
+
+        compose.runOnIdle { mode.value = "devices_drying" }
+        compose.waitForIdle()
+        compose.onNodeWithText("Drying").assertExists()
+
         // Test AmsDryingSheet in idle state
         compose.runOnIdle { mode.value = "idle_sheet" }
         compose.waitForIdle()
@@ -3012,11 +3027,68 @@ class ScreenTest {
         compose.onNodeWithText("Rotate spools periodically").assertExists()
         compose.onNodeWithText("Start drying").assertExists()
 
+        // Test preset clicks
+        compose.onNodeWithText("PETG").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("55°C").assertExists()
+        compose.onNodeWithText("6h").assertExists()
+
+        compose.onNodeWithText("ABS/ASA").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("65°C").assertExists()
+        compose.onNodeWithText("8h").assertExists()
+
+        compose.onNodeWithText("TPU").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("55°C").assertExists()
+
+        compose.onNodeWithText("PA/PC").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("65°C").assertExists()
+        compose.onNodeWithText("12h").assertExists()
+
+        compose.onNodeWithText("PLA").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("50°C").assertExists()
+        compose.onNodeWithText("4h").assertExists()
+
+        // Test temp steppers
+        compose.onNodeWithContentDescription("Decrease temperature").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("45°C").assertExists()
+
+        compose.onNodeWithContentDescription("Increase temperature").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("50°C").assertExists()
+
+        // Test duration steppers
+        compose.onNodeWithContentDescription("Decrease duration").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("3h").assertExists()
+
+        compose.onNodeWithContentDescription("Increase duration").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("4h").assertExists()
+
+        // Test toggle rotate tray
+        compose.onNode(isToggleable()).performClick()
+        compose.waitForIdle()
+
+        // Click Start drying
+        compose.onNodeWithText("Start drying").performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.any { it.first.endsWith("start_filament_drying") } }
+
         // Test AmsDryingSheet in active drying state
         compose.runOnIdle { mode.value = "drying_sheet" }
         compose.waitForIdle()
 
         compose.onNodeWithText("Drying in progress").assertExists()
+        compose.onNodeWithText("Target temperature").assertExists()
+        compose.onNodeWithText("Chamber temperature").assertExists()
         compose.onNodeWithText("Stop drying").assertExists()
+
+        // Click Stop drying
+        compose.onNodeWithText("Stop drying").performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.any { it.first.endsWith("stop_filament_drying") } }
     }
 }

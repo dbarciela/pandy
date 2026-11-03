@@ -569,16 +569,16 @@ fun DryingGlyph(modifier: Modifier = Modifier, color: Color = C.Sub) {
 }
 
 @Composable
-private fun StepButton(icon: ImageVector, enabled: Boolean, onClick: () -> Unit) {
+private fun StepButton(icon: ImageVector, enabled: Boolean, desc: String? = null, onClick: () -> Unit) {
     Box(
         Modifier
             .size(36.dp)
             .clip(CircleShape)
             .background(if (enabled) C.Card else C.Fill)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, onClickLabel = desc, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, null, Modifier.size(18.dp), tint = if (enabled) C.Text else C.Faint)
+        Icon(icon, desc, Modifier.size(18.dp), tint = if (enabled) C.Text else C.Faint)
     }
 }
 
@@ -678,12 +678,12 @@ fun AmsDryingSheet(
                     Gap(6.dp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         T("$temp°C", 22.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        StepButton(Icons.Default.Remove, enabled = temp > 45) {
+                        StepButton(Icons.Default.Remove, enabled = temp > 45, "Decrease temperature") {
                             temp = (temp - 5).coerceAtLeast(45)
                             selectedPreset = null
                         }
                         Spacer(Modifier.width(8.dp))
-                        StepButton(Icons.Default.Add, enabled = temp < 65) {
+                        StepButton(Icons.Default.Add, enabled = temp < 65, "Increase temperature") {
                             temp = (temp + 5).coerceAtMost(65)
                             selectedPreset = null
                         }
@@ -697,12 +697,12 @@ fun AmsDryingSheet(
                     Gap(6.dp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         T("${duration}h", 22.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        StepButton(Icons.Default.Remove, enabled = duration > 1) {
+                        StepButton(Icons.Default.Remove, enabled = duration > 1, "Decrease duration") {
                             duration = (duration - 1).coerceAtLeast(1)
                             selectedPreset = null
                         }
                         Spacer(Modifier.width(8.dp))
-                        StepButton(Icons.Default.Add, enabled = duration < 24) {
+                        StepButton(Icons.Default.Add, enabled = duration < 24, "Increase duration") {
                             duration = (duration + 1).coerceAtMost(24)
                             selectedPreset = null
                         }

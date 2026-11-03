@@ -318,4 +318,26 @@ class DirectPrinterTest {
         } finally { printer.stop() }
     }
 
+    @Test fun directPrinterDispatchesAmsDryingCommands() = runBlocking<Unit> {
+        val ams = ""","ams":{"ams":[{"id":"0","model":"AMS 2 Pro"}]}"""
+        val link = Link(report(ams))
+        val printer = DirectPrinter(config, true, { link })
+        try {
+            registry(printer)
+            printer.command("bambu_lab/start_filament_drying", "ams_id" to "0", "temp" to "55", "duration" to "4", "rotate_tray" to "true")
+            val startSent = link.sent.last().o("print")!!
+            assertEquals("ams_drying", startSent.s("command"))
+            assertEquals("start", startSent.s("action"))
+            assertEquals("0", startSent.s("ams_id"))
+            assertEquals("55", startSent.s("temp"))
+            assertEquals("240", startSent.s("duration"))
+            assertEquals("true", startSent.s("rotate_tray"))
+
+            printer.command("bambu_lab/stop_filament_drying", "ams_id" to "0")
+            val stopSent = link.sent.last().o("print")!!
+            assertEquals("ams_drying", stopSent.s("command"))
+            assertEquals("stop", stopSent.s("action"))
+            assertEquals("0", stopSent.s("ams_id"))
+        } finally { printer.stop() }
+    }
 }

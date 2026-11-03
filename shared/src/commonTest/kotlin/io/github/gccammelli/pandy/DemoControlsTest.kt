@@ -98,6 +98,26 @@ class DemoControlsTest {
         assertEquals("{\"status\":\"present\"}", ha.post("/api/bambu_lab/ensure_cache_file", "{}"))
     }
 
+    @Test fun demoFilamentDryingUpdatesState() = runTest {
+        val ha = FakeHomeAssistant()
+        ha.command("bambu_lab/start_filament_drying", "ams_id" to "0", "temp" to "65", "duration" to "6")
+        assertEquals("on", ha.state("binary_sensor", "AMS_1_drying").s("state"))
+        assertEquals("6.0", ha.state("sensor", "AMS_1_remaining_drying_time").s("state"))
+        assertEquals("65.0", ha.state("sensor", "AMS_1_drying_target_temp").s("state"))
+
+        ha.command("bambu_lab/stop_filament_drying", "ams_id" to "0")
+        assertEquals("off", ha.state("binary_sensor", "AMS_1_drying").s("state"))
+        assertEquals("0.0", ha.state("sensor", "AMS_1_remaining_drying_time").s("state"))
+
+        val info = ha.printers().single()
+        val printer = Printer(info, emptyMap())
+        val ams = info.ams.first()
+        ha.startAmsDrying(printer, ams, 55, 4, true)
+        ha.stopAmsDrying(printer, ams)
+        ha.startAmsDrying(printer, ams.copy(haId = ""), 55, 4, false)
+        ha.stopAmsDrying(printer, ams.copy(haId = ""))
+    }
+
     @Test fun streamFiltersSnapshotAndSubsequentChanges() = runTest {
         val ha = FakeHomeAssistant()
         val events = mutableListOf<JsonObject>()
