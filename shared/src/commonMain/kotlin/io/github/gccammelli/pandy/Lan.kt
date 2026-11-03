@@ -388,22 +388,21 @@ fun amsUserSettingCommand(sequenceId: String, amsId: Int, startup: Boolean, inse
         put("ams_id", amsId); put("startup_read_option", startup); put("tray_read_option", insertion); put("calibrate_remain_flag", remaining)
     })
 
-fun amsDryingCommand(sequenceId: String, amsId: Int, temp: Int, durationMinutes: Int, rotateTray: Boolean) =
-    printCommand(sequenceId, "ams_drying", buildJsonObject {
-        put("ams_id", amsId); put("temp", temp); put("duration", durationMinutes)
-        put("rotate_tray", rotateTray); put("action", "start")
+fun amsDryingCommand(sequenceId: String, amsId: Int, temp: Int, durationHours: Int, rotateTray: Boolean) =
+    printCommand(sequenceId, "ams_filament_drying", buildJsonObject {
+        put("ams_id", amsId); put("temp", temp); put("cooling_temp", 45); put("duration", durationHours)
+        put("mode", 1); put("rotate_tray", rotateTray); put("humidity", 0)
     })
 
 fun amsStopDryingCommand(sequenceId: String, amsId: Int) =
-    printCommand(sequenceId, "ams_drying", buildJsonObject {
-        put("ams_id", amsId); put("action", "stop")
+    printCommand(sequenceId, "ams_filament_drying", buildJsonObject {
+        put("ams_id", amsId); put("mode", 0); put("temp", 0); put("duration", 0)
     })
 
 private fun amsModel(ai: Int, a: JsonObject, modHw: String, modName: String, traysCount: Int): String {
     val modelOrType = "${a.str("model").orEmpty()} ${a.str("type").orEmpty()}"
     val hw = "${a.str("hw_version").orEmpty()} ${a.str("hw").orEmpty()} $modHw"
     val hasDrying = a.get("is_drying") != null || a.get("drying_status") != null || a.get("remain_time") != null || a.get("target_temp") != null
-    val hasTemp = a.dbl("temp")?.let { it > 0.0 } == true
     val isHt = ai >= 128 || modelOrType.contains("HT", true) || modelOrType.contains("N3S", true) || hw.contains("N3S", true) || modName.contains("N3S", true)
     val isAms2 = !isHt && (modelOrType.contains("2 Pro", true) || modelOrType.contains("N3F", true) || modelOrType.contains("AMS 2", true) ||
         hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) || hasDrying)
@@ -787,7 +786,7 @@ class DirectPrinter(
                 val temp = d.s("temp")?.toIntOrNull() ?: 50
                 val durationHours = d.s("duration")?.toIntOrNull() ?: 4
                 val rotateTray = d.s("rotate_tray") != "false"
-                publish(amsDryingCommand(nextSeq(), amsId, temp, durationHours * 60, rotateTray))
+                publish(amsDryingCommand(nextSeq(), amsId, temp, durationHours, rotateTray))
             }
             "bambu_lab/stop_filament_drying" -> {
                 val amsId = d.s("ams_id")?.toIntOrNull() ?: 0

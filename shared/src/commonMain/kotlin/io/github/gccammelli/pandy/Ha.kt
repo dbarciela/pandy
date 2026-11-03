@@ -289,7 +289,6 @@ fun printersFrom(devs: JsonArray, ents: JsonArray): List<PrinterInfo> {
             val hw = c.s("hw_version") ?: c.s("hw_ver") ?: ""
             val name = c.s("name_by_user") ?: c.s("name") ?: ""
             val hasDrying = rows.any { it.s("translation_key") == "drying" || it.s("unique_id")?.contains("drying") == true || it.s("entity_id")?.contains("drying") == true }
-            val hasTemp = rows.any { it.s("translation_key") == "ams_temp" || it.s("entity_id")?.contains("temp") == true }
             val isHt = rawModel.contains("HT", true) || rawModel.contains("N3S", true) || hw.contains("N3S", true) || protocolId?.let { it >= 128 } == true
             val isAms2 = !isHt && (rawModel.contains("2 Pro", true) || rawModel.contains("N3F", true) || rawModel.contains("AMS 2", true) ||
                 hw.contains("N3F", true) || name.contains("2 Pro", true) || hasDrying)

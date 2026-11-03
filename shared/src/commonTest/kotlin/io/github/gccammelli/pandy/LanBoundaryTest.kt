@@ -129,17 +129,18 @@ class LanBoundaryTest {
 
     @Test
     fun amsDryingCommandsAndLanTelemetry() {
-        val startCmd = amsDryingCommand("101", 0, 55, 360, true)["print"]!!.jsonObject
-        assertEquals("ams_drying", startCmd.s("command"))
-        assertEquals("start", startCmd.s("action"))
+        val startCmd = amsDryingCommand("101", 0, 55, 6, true)["print"]!!.jsonObject
+        assertEquals("ams_filament_drying", startCmd.s("command"))
+        assertEquals("1", startCmd.s("mode"))
         assertEquals("0", startCmd.s("ams_id"))
         assertEquals("55", startCmd.s("temp"))
-        assertEquals("360", startCmd.s("duration"))
+        assertEquals("6", startCmd.s("duration"))
+        assertEquals("45", startCmd.s("cooling_temp"))
         assertEquals("true", startCmd.s("rotate_tray"))
 
         val stopCmd = amsStopDryingCommand("102", 0)["print"]!!.jsonObject
-        assertEquals("ams_drying", stopCmd.s("command"))
-        assertEquals("stop", stopCmd.s("action"))
+        assertEquals("ams_filament_drying", stopCmd.s("command"))
+        assertEquals("0", stopCmd.s("mode"))
         assertEquals("0", stopCmd.s("ams_id"))
 
         val amsReport = """{

@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
-import io.github.gccammelli.pandy.amsId
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
@@ -597,7 +596,7 @@ fun AmsDryingSheet(
     var temp by remember(ams.amsId()) { mutableStateOf(targetTemp?.toInt()?.coerceIn(45, 65) ?: 50) }
     var duration by remember(ams.amsId()) { mutableStateOf(remainingHours?.toInt()?.coerceIn(1, 24) ?: 4) }
     var rotateTray by remember(ams.amsId()) { mutableStateOf(true) }
-    var selectedPreset by remember(ams.amsId()) { mutableStateOf<String?>("PLA") }
+    var selectedPreset by remember(ams.amsId()) { mutableStateOf<String?>(DRYING_PRESETS.firstOrNull { it.temp == (targetTemp?.toInt() ?: 50) }?.name ?: "PLA") }
 
     val amsTitle = "Filament Drying - " + ams.displayName()
 
