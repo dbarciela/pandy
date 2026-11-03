@@ -8,7 +8,6 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import io.ktor.client.engine.mock.respond
 import androidx.activity.ComponentActivity
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import android.graphics.Canvas
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.onNodeWithText
@@ -670,7 +669,7 @@ class ScreenTest {
             }
         }.toByteArray()
 
-    private fun prepareRealPrint(filaments: String?, failSlice: Boolean = false, keepAms: Boolean = false, model: ByteArray? = null, requests: MutableList<io.ktor.http.Url>? = null, beforePrint: () -> Unit = {}, noSpools: Boolean = false): Pair<java.util.concurrent.ConcurrentLinkedQueue<String>, java.util.concurrent.atomic.AtomicBoolean> {
+    private fun prepareRealPrint(filaments: String?, failSlice: Boolean = false, keepAms: Boolean = false, model: ByteArray? = null, requests: MutableList<io.ktor.http.Url>? = null, beforePrint: () -> Unit = {}, noSpools: Boolean = false, settingsHeaders: MutableList<String>? = null): Pair<java.util.concurrent.ConcurrentLinkedQueue<String>, java.util.concurrent.atomic.AtomicBoolean> {
         val store = Repo::class.java.getDeclaredField("store").apply { isAccessible=true }.get(Repo) as PlatformStorage
         val keys = listOf("demo","mode","lan_serial","lan_ip","lan_model")
         val before = keys.associateWith { store.settings.getString(it) }
@@ -686,10 +685,18 @@ class ScreenTest {
         val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
             org.junit.Assert.assertNull(request.headers["X-Printer-Code"])
             requests?.add(request.url)
-            if(failSlice) respond("""{"error":"Slicing failed in test"}""",io.ktor.http.HttpStatusCode.ServiceUnavailable)
-            else respond(byteArrayOf(1,2,3),headers=io.ktor.http.headersOf(
+            if (request.url.encodedPath.endsWith("/settings") && settingsHeaders != null) respond(
+                """{"version":1,"settings":[{"group":"Support","key":"enable_support","label":"Generate support","type":"choice","options":[{"value":"1","label":"On"},{"value":"0","label":"Off"}]}]}""")
+            else if(failSlice) respond("""{"error":"Slicing failed in test"}""",io.ktor.http.HttpStatusCode.ServiceUnavailable)
+            else {
+                val applied = request.headers["X-Pandy-Slicer-Settings"]
+                if (applied != null) settingsHeaders?.add(applied)
+                val result = if(filaments==null) "{}" else """{"plates":[{"index":1,"filaments":$filaments}]}"""
+                val metadata = if (applied == null) result else result.dropLast(1) + (if (result == "{}") "" else ",") + "\"applied_settings\":" + applied + "}"
+                respond(byteArrayOf(1,2,3),headers=io.ktor.http.headersOf(
                 "Content-Disposition" to listOf("attachment; filename=\"test.gcode.3mf\""),
-                "X-Pandy-Result" to listOf(if(filaments==null) "{}" else """{"plates":[{"index":1,"filaments":$filaments}]}""")))
+                "X-Pandy-Result" to listOf(metadata)))
+            }
         }).also { testHttpClients += it }
         val slicer = SlicerClient("http://slicer.invalid:8737",null,http=http,storageFactory={ c ->
             assertEquals("127.0.0.1",c.ip)
@@ -702,8 +709,9 @@ class ScreenTest {
             }
         })
         val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val download = WebDownload(null,if(model==null) "Test model.3mf" else "Test model.stl",null,model ?: modelBytes(),true)
         compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
-            PrintModelSheet(WebDownload(null,if(model==null) "Test model.3mf" else "Test model.stl",null,model ?: modelBytes(),true),{closed.set(true)},slicerClient=slicer)
+            PrintModelSheet(download,{closed.set(true)},slicerClient=slicer)
         } } }
         compose.waitUntil(5000) { compose.waitForIdle(); compose.onAllNodesWithText("Select a Print Profile").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Next").performClick()
@@ -730,6 +738,24 @@ class ScreenTest {
         val sliced = requests.single { it.encodedPath.endsWith("/slice") }
         assertEquals(spool.type,sliced.parameters["filament_type"]); assertEquals(colorHex(spool.color),sliced.parameters["filament_color"])
         assertEquals(1,uploads.size)
+        org.junit.Assert.assertTrue(commands.any { it.first.endsWith("/print_project_file") })
+    }
+
+    @Test fun aPrintSendsTheChosenAdvancedSettingsToTheSlicer() {
+        val headers = mutableListOf<String>()
+        val (uploads, closed) = prepareRealPrint("""[{"id":"1","type":"PLA","color":"#FFFFFF"},{"id":"2","type":"PETG","color":"#00AE42"}]""",
+            settingsHeaders = headers, beforePrint = {
+                compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
+                compose.waitUntil(5000) { compose.onAllNodesWithText("Generate support").fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText("Generate support").performClick()
+                compose.onNodeWithText("On").performClick()
+                compose.onNodeWithText("Done").performClick()
+            })
+        compose.onNodeWithText("Generate support: On", substring = true).assertExists()
+        compose.onNodeWithText("Start", substring = false).performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); closed.get() }
+        assertEquals("1", json.parseToJsonElement(headers.single()).jsonObject.s("enable_support"))
+        assertEquals(1, uploads.size)
         org.junit.Assert.assertTrue(commands.any { it.first.endsWith("/print_project_file") })
     }
 
@@ -963,10 +989,306 @@ class ScreenTest {
     }
 
     private fun prepareModel(bytes: ByteArray,client: SlicerClient?=null) {
+        val download = WebDownload(null,"Test model.3mf",null,bytes,true)
         compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
-            PrintModelSheet(WebDownload(null,"Test model.3mf",null,bytes,true),{},slicerClient=client)
+            PrintModelSheet(download,{},slicerClient=client)
         } } }
         compose.waitUntil(5000) { compose.waitForIdle(); compose.onAllNodesWithText("Select a Print Profile").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun advancedSlicerSettingsCanBeChangedReviewedAndResetForThisPrint() {
+        val schema = """{"version":1,"settings":[
+            {"group":"Quality","key":"layer_height","label":"Layer height","type":"number","unit":"mm","min":0.05,"max":0.6},
+            {"group":"Support","key":"enable_support","label":"Generate support","type":"choice","options":[{"value":"1","label":"On"},{"value":"0","label":"Off"}]}]}"""
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(schema) }).also { testHttpClients += it }
+        Repo.state.value = st.copy(printers = listOf(changed("sensor.print_status" to "idle")))
+        prepareModel(modelBytes(), SlicerClient("slicer.invalid", null, http = http))
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Layer height").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Default").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onAllNodes(hasSetTextAction()).onLast().performTextReplacement("999")
+        compose.onNodeWithText("Save").assertIsNotEnabled()
+        compose.onAllNodes(hasSetTextAction()).onLast().performTextReplacement("0.12")
+        compose.onNodeWithText("Save").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithContentDescription("Expand Support").performScrollTo().performClick()
+        compose.onNodeWithText("On").performClick()
+        compose.onNodeWithText("2 changes").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("2 changed for this print").performScrollTo().assertExists()
+        compose.onNodeWithText("Print (demo)").performClick()
+        compose.onNodeWithText("Layer height: 0.12 mm", substring = true).assertExists()
+        compose.onNodeWithText("Generate support: On", substring = true).assertExists()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Reset all to profile").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Reset all to profile").performClick()
+        compose.waitUntil(5000) { compose.onAllNodes(hasText("Done") and isEnabled()).fetchSemanticsNodes().isNotEmpty() } // Done waits for the slicer's settings
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Use the model's profile").performScrollTo().assertExists()
+        org.junit.Assert.assertTrue(commands.isEmpty())
+    }
+
+    @Test fun oldSlicerExplainsThatAdvancedSettingsNeedAnUpdate() {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine {
+            respond("{}", io.ktor.http.HttpStatusCode.NotFound)
+        }).also { testHttpClients += it }
+        prepareModel(modelBytes(), SlicerClient("slicer.invalid", null, http = http))
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Update Pandy Slicer to use advanced slicer settings.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Done").assertIsNotEnabled()
+        org.junit.Assert.assertTrue(commands.isEmpty())
+    }
+
+    @Test fun advancedSettingsExplainWhenNoSlicerIsConfigured() {
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(null, emptyMap(), {}, { _, _ -> })
+        } } }
+        compose.onNodeWithText("Set up Pandy Slicer in Me › Settings to change these settings.").assertExists()
+        compose.onNodeWithText("Done").assertIsNotEnabled()
+    }
+
+    @Test fun advancedSettingsCanResetChoicesNoLongerSupportedByTheSlicer() {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine {
+            respond("""{"version":1,"settings":[{"group":"Strength","key":"wall_loops","label":"Wall loops","type":"integer","min":1,"max":20}]}""")
+        }).also { testHttpClients += it }
+        var result: Map<String, String>? = null
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), mapOf("removed" to "1"), {}, { values, _ -> result = values })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Some saved choices are no longer supported. Reset them to continue.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Done").assertIsNotEnabled()
+        compose.onNodeWithText("Reset all to profile").performClick()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(emptyMap<String, String>(), result)
+    }
+
+    @Test fun individualAdvancedSettingsCanReturnToTheProfileOrBeDismissed() {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine {
+            respond("""{"version":1,"settings":[
+                {"group":"Strength","key":"wall_loops","label":"Wall loops","type":"integer","min":1,"max":20},
+                {"group":"Support","key":"enable_support","label":"Generate support","type":"choice","options":[{"value":"1","label":"On"},{"value":"0","label":"Off"}]}]}""")
+        }).also { testHttpClients += it }
+        var result: Map<String, String>? = null
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http),
+                mapOf("wall_loops" to "4", "enable_support" to "1"), {}, { values, _ -> result = values })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Wall loops").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("4 ").assertDoesNotExist()
+        compose.onNodeWithText("4").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Range: 1–20").assertExists()
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNodeWithText("4").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Use profile default").performClick()
+        compose.onNodeWithText("Reset to profile").performClick()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(emptyMap<String, String>(), result)
+    }
+
+    private val richSchema = """{"version":1,"settings":[
+        {"group":"Quality","key":"layer_height","label":"Layer height","type":"number","unit":"mm","min":0.05,"max":0.6},
+        {"group":"Quality","key":"seam_position","label":"Seam position","type":"choice","options":[{"value":"nearest","label":"Nearest"},{"value":"back","label":"Back"}]},
+        {"group":"Quality","key":"ironing_type","label":"Ironing","type":"choice","options":[{"value":"no ironing","label":"Off"},{"value":"top","label":"Top surfaces"},{"value":"topmost","label":"Topmost surface"},{"value":"solid","label":"All solid layers"}]},
+        {"group":"Strength","key":"sparse_infill_density","label":"Infill density","type":"number","unit":"%","min":0,"max":100},
+        {"group":"Strength","key":"sparse_infill_pattern","label":"Infill pattern","type":"choice","options":[{"value":"grid","label":"Grid"},{"value":"line","label":"Rectilinear"},{"value":"triangles","label":"Triangles"},{"value":"tri-hexagon","label":"Tri-hexagon"},{"value":"honeycomb","label":"Honeycomb"},{"value":"gyroid","label":"Gyroid"},{"value":"cubic","label":"Cubic"},{"value":"adaptivecubic","label":"Adaptive cubic"},{"value":"extra","label":"Extra"}]},
+        {"group":"Support","key":"support_type","label":"Support type","type":"choice","options":[{"value":"normal(auto)","label":"Normal (automatic)"},{"value":"tree(auto)","label":"Tree (automatic)"}]},
+        {"group":"Adhesion","key":"brim_type","label":"Brim type","type":"choice","options":[{"value":"auto_brim","label":"Auto"},{"value":"no_brim","label":"None"},{"value":"outer_only","label":"Outer"},{"value":"inner_only","label":"Inner"},{"value":"outer_and_inner","label":"Outer and inner"}]},
+        {"group":"Speed","key":"travel_speed","label":"Travel","type":"number","unit":"mm/s","min":1,"max":500},
+        {"group":"Mystery","key":"mystery_speed","label":"Mystery speed","type":"number","unit":"mm/s","min":1,"max":500}]}"""
+
+    /** Draws the window so the Canvas-based previews actually run. */
+    private fun drawWindow() = compose.runOnIdle {
+        val view = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        org.junit.Assert.assertTrue(bitmap.getPixel(view.width / 2, view.height / 2) != 0)
+    }
+
+    private fun showRich(saved: Map<String, String> = emptyMap(), onDone: (Map<String, String>) -> Unit = {}) {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(richSchema) }).also { testHttpClients += it }
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), saved, {}, { values, _ -> onDone(values) })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Search 9 settings").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun groupsCollapseAndExpandAndStartOpenWhereSettingsAreChanged() {
+        showRich(mapOf("sparse_infill_density" to "35"))
+        compose.onNodeWithText("1 modified · 5 settings").assertDoesNotExist()
+        compose.onNodeWithText("1 modified · 2 settings").assertExists()
+        compose.onNodeWithText("Infill density").assertExists()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Expand Quality").performClick()
+        compose.onNodeWithText("Layer height").assertExists()
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithText("1 change").assertExists()
+    }
+
+    @Test fun numbersStepInsideTheirRangeAndOpenTheKeypad() {
+        showRich(mapOf("layer_height" to "0.55"))
+        compose.onNodeWithContentDescription("Increase Layer height").performClick()
+        compose.onNodeWithText("0.6 mm").assertExists()
+        compose.onNodeWithContentDescription("Increase Layer height").performClick()
+        compose.onNodeWithText("0.6 mm").assertExists()
+        compose.onNodeWithContentDescription("Decrease Layer height").performClick()
+        compose.onNodeWithText("0.55 mm").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Range: 0.05–0.6 mm").assertExists()
+    }
+
+    @Test fun choicesUseSegmentsAndPickersAndCanBeReset() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Reset to profile").assertExists()
+        compose.onNodeWithText("Back").performClick() // tapping the chosen segment returns to the profile
+        compose.onNodeWithText("Reset to profile").assertDoesNotExist()
+        compose.onNodeWithText("Ironing").performScrollTo()
+        compose.onNodeWithText("Profile default", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Topmost surface").performClick()
+        compose.onNodeWithText("Topmost surface").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("ironing_type" to "topmost"), result)
+    }
+
+    @Test fun searchFindsSettingsAcrossGroupsAndTheModifiedFilterListsOnlyChanges() {
+        showRich(mapOf("mystery_speed" to "120"))
+        compose.onNodeWithText("Search 9 settings").assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("infill")
+        compose.onNodeWithText("2 results").assertExists()
+        compose.onNodeWithText("Infill density").assertExists()
+        compose.onAllNodesWithText("Strength").onFirst().assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("infill gyroid")
+        compose.onNodeWithText("1 result").assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("zzz")
+        compose.onNodeWithText("No settings match your search.").assertExists()
+        compose.onNodeWithContentDescription("Clear search").performClick()
+        compose.onNodeWithText("Modified").performClick()
+        compose.onNodeWithText("Mystery speed").assertExists()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithText("Reset to profile").performClick()
+        compose.onNodeWithText("Nothing changed for this print yet.").assertExists()
+        compose.onNodeWithText("All").performClick()
+        compose.onNodeWithText("Layer height").assertExists()
+    }
+
+    @Test fun infillDensityHasPresetsAndASliderOnceSet() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithContentDescription("Expand Strength").performClick()
+        compose.onNodeWithText("Medium 20").performClick()
+        compose.onNode(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(50f) }
+        compose.onNodeWithText("50 %").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("sparse_infill_density" to "50"), result)
+    }
+
+    @Test fun visualPickersDrawEveryPatternBrimAndSupportStyle() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        compose.onNodeWithContentDescription("Expand Strength").performClick()
+        compose.onAllNodesWithText("Profile default")[0].performClick() // the first picker in view
+        compose.mainClock.advanceTimeBy(500)
+        drawWindow()
+        compose.onNodeWithText("Gyroid").performClick()
+        compose.onNodeWithText("Gyroid").assertExists()
+        drawWindow() // the chosen pattern's icon on its row
+        listOf("Support" to "Tree (automatic)", "Adhesion" to "Inner").forEach { (group, pick) ->
+            compose.onNodeWithContentDescription("Expand $group").performScrollTo().performClick()
+            compose.onNodeWithText(if (group == "Support") "Support type" else "Brim type").performScrollTo()
+            compose.onAllNodesWithText("Profile default").onLast().performClick()
+            compose.mainClock.advanceTimeBy(500)
+            drawWindow()
+            compose.onNodeWithText(pick).performClick()
+            drawWindow()
+        }
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("sparse_infill_pattern" to "gyroid", "support_type" to "tree(auto)", "brim_type" to "inner_only"), result)
+    }
+
+    @Test fun theCurrentChoiceIsMarkedInThePickerAndCanBeClearedFromIt() {
+        var result: Map<String, String>? = null
+        showRich(mapOf("sparse_infill_pattern" to "gyroid", "ironing_type" to "top"), { result = it })
+        compose.onNodeWithText("Gyroid").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        drawWindow()
+        compose.onNodeWithText("Cubic").performClick() // a different tile than the marked one
+        compose.onNodeWithText("Cubic").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Profile default").performClick() // the sheet's own reset row
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("ironing_type" to "top"), result)
+    }
+
+    @Test fun resultsCanBeEditedAndTheirSheetsClosed() {
+        showRich(mapOf("sparse_infill_pattern" to "gyroid"))
+        compose.onNode(hasSetTextAction()).performTextReplacement("layer height")
+        compose.onNodeWithText("Default").performClick() // opens the keypad from a search result
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("pattern")
+        compose.onNodeWithText("Gyroid").performClick() // a choice picker from a search result
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNodeWithText("Modified").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("zzz")
+        compose.onNodeWithText("No settings match your search.").assertExists()
+        compose.onNodeWithText("Reset to profile").assertDoesNotExist()
+    }
+
+    @Test fun unknownGroupsStillGetAnIconAndWork() {
+        showRich()
+        compose.onNodeWithContentDescription("Expand Mystery").performScrollTo().performClick()
+        compose.onNodeWithText("Mystery speed").assertExists()
+    }
+
+    @Test fun advancedSettingsHandleAConnectionFailureWithoutAReason() {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine {
+            throw java.io.IOException()
+        }).also { testHttpClients += it }
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), emptyMap(), {}, { _, _ -> })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Couldn't load the slicer settings.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Done").assertIsNotEnabled()
+    }
+
+    @Test fun cancellingTheSettingsRequestDoesNotShowAConnectionError() {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine {
+            throw kotlinx.coroutines.CancellationException("cancelled")
+        }).also { testHttpClients += it }
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), emptyMap(), {}, { _, _ -> })
+        } } }
+        compose.onNodeWithText("Loading slicer settings…").assertExists()
+        compose.onNodeWithText("Done").assertIsNotEnabled()
+    }
+
+    @Test fun slicerSettingsDoNotReloadWhenTheSameConnectionIsRecreatedDuringRecomposition() {
+        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine {
+            requests.incrementAndGet()
+            respond("""{"version":1,"settings":[{"group":"Quality","key":"wall_loops","label":"Wall loops","type":"integer","min":1,"max":20}]}""")
+        }).also { testHttpClients += it }
+        val tick = androidx.compose.runtime.mutableIntStateOf(0)
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            tick.intValue
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), emptyMap(), {}, { _, _ -> })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Wall loops").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { tick.intValue++ }
+        compose.onNodeWithText("Wall loops").assertExists()
+        assertEquals(1, requests.get())
     }
 
     @Test fun sparseProjectKeepsUnknownMetricsAndMissingMeshExplicit() {
@@ -2004,11 +2326,7 @@ class ScreenTest {
         )
     }
 
-    private fun evidenceDir(): java.io.File =
-        listOf(java.io.File("../docs/evidence/dual-nozzle"), java.io.File("docs/evidence/dual-nozzle"))
-            .first { it.parentFile?.exists() == true }.apply { mkdirs() }
-
-    @Test fun dualNozzleEvidenceDevicesScreen() {
+    @Test fun dualNozzleDevicesScreenShowsBothNozzles() {
         val p = sampleX2DPrinter()
         compose.setContent {
             CompositionLocalProvider(LocalPlatform provides platform) {
@@ -2018,13 +2336,11 @@ class ScreenTest {
             }
         }
         compose.waitForIdle()
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
-        java.io.FileOutputStream(java.io.File(evidenceDir(), "devices-screen.png")).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        }
+        compose.onAllNodesWithText("L").onFirst().assertExists()
+        compose.onAllNodesWithText("R").onFirst().assertExists()
     }
 
-    @Test fun dualNozzleEvidenceControlScreen() {
+    @Test fun dualNozzleControlScreenShowsBothNozzles() {
         val p = sampleX2DPrinter()
         compose.setContent {
             CompositionLocalProvider(LocalPlatform provides platform) {
@@ -2034,10 +2350,8 @@ class ScreenTest {
             }
         }
         compose.waitForIdle()
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
-        java.io.FileOutputStream(java.io.File(evidenceDir(), "control-screen.png")).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        }
+        compose.onAllNodesWithText("L").onFirst().assertExists()
+        compose.onAllNodesWithText("R").onFirst().assertExists()
     }
 
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
