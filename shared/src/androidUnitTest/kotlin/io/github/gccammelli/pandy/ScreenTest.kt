@@ -2504,8 +2504,8 @@ class ScreenTest {
 
     private fun variant(info: PrinterInfo = printer.info, remove: List<String> = emptyList(), vararg set: Pair<String,Entity>): Printer {
         val states=snapshot.toMutableMap()
-        for(key in remove) states.remove(printer.info.ids[key] ?: key)
-        for((key,entity) in set) { val id=printer.info.ids[key] ?: key; states[id]=Entity(id,entity.state,entity.attrs) }
+        for(key in remove) states.remove(info.ids[key] ?: printer.info.ids[key] ?: key)
+        for((key,entity) in set) { val id=info.ids[key] ?: printer.info.ids[key] ?: key; states[id]=Entity(id,entity.state,entity.attrs) }
         return Printer(info,states)
     }
     private fun entity(state: String, attrs: Map<String,Any> = emptyMap()) = Entity("",state,JsonObject(attrs.mapValues { (_,v) -> v as? JsonElement ?: JsonPrimitive(v.toString()) }))
