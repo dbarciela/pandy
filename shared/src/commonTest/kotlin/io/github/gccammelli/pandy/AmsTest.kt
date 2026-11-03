@@ -2,7 +2,10 @@ package io.github.gccammelli.pandy
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -202,5 +205,105 @@ class AmsTest {
         assertEquals(false, emptyPrinter.amsIsDrying(amsInfo))
         assertNull(emptyPrinter.amsDryingRemaining(amsInfo))
         assertNull(emptyPrinter.amsDryingTargetTemp(amsInfo))
+    }
+
+    private class TestBackend : HaBackend {
+        override val base = "https://home.example"
+        val posts = mutableListOf<Pair<String, JsonObject>>()
+        override suspend fun get(path: String) = "{}"
+        override suspend fun post(path: String, body: String): String {
+            posts += path to json.parseToJsonElement(body).jsonObject
+            return "{}"
+        }
+        override suspend fun bytes(path: String) = byteArrayOf()
+        override suspend fun ws(commands: List<JsonObject>) = commands.map { null }
+        override suspend fun stream(subscribe: JsonObject, onEvent: (JsonObject) -> Unit) = error("No stream")
+    }
+
+    @Test fun startAndStopAmsDryingDispatchCorrectHomeAssistantServices() = runTest {
+        val b = TestBackend()
+        val ams = AmsInfo("ams_dev_1", 1, "AMS 2 Pro", emptyMap(), emptyMap(), 0)
+        val p = Printer(PrinterInfo("p_ha_id", "serial", "Printer", "X1C", null, emptyMap(), listOf(ams), emptyList()), emptyMap())
+
+        b.startAmsDrying(p, ams, 55, 6, true)
+        assertEquals("/api/services/bambu_lab/start_filament_drying", b.posts.last().first)
+        val startData = b.posts.last().second
+        assertEquals("ams_dev_1", startData.s("device_id"))
+        assertEquals("0", startData.s("ams_id"))
+        assertEquals("55", startData.s("temp"))
+        assertEquals("6", startData.s("duration"))
+        assertEquals("true", startData.s("rotate_tray"))
+
+        b.stopAmsDrying(p, ams)
+        assertEquals("/api/services/bambu_lab/stop_filament_drying", b.posts.last().first)
+        val stopData = b.posts.last().second
+        assertEquals("ams_dev_1", stopData.s("device_id"))
+        assertEquals("0", stopData.s("ams_id"))
+
+        // Fallback to printer haId when ams haId is blank
+        val blankAms = ams.copy(haId = "")
+        b.startAmsDrying(p, blankAms, 50, 4, false)
+        assertEquals("p_ha_id", b.posts.last().second.s("device_id"))
+        assertEquals("false", b.posts.last().second.s("rotate_tray"))
+
+        b.stopAmsDrying(p, blankAms)
+        assertEquals("p_ha_id", b.posts.last().second.s("device_id"))
+    }
+
+    @Test fun amsModelBadgeAndDisplayNamesCoverAllVariants() {
+        val ams2ByModel = AmsInfo("1", 1, "AMS 2", emptyMap(), emptyMap(), 0)
+        assertTrue(ams2ByModel.isAms2Pro())
+        assertEquals("AMS 2 Pro", ams2ByModel.modelBadge())
+        assertEquals("AMS A", ams2ByModel.displayName())
+        assertEquals(0, ams2ByModel.amsId())
+
+        val ams2ByIdKey = AmsInfo("2", 2, "AMS", mapOf("binary_sensor.drying" to "s1"), emptyMap(), 1)
+        assertTrue(ams2ByIdKey.isAms2Pro())
+        assertEquals("AMS 2 Pro", ams2ByIdKey.modelBadge())
+        assertEquals("AMS B", ams2ByIdKey.displayName())
+
+        val ams2ByRemainKey = AmsInfo("3", 3, "AMS", mapOf("sensor.remaining_drying_time" to "s2"), emptyMap(), 2)
+        assertTrue(ams2ByRemainKey.isAms2Pro())
+
+        val ams2ByTargetKey = AmsInfo("4", 4, "AMS", mapOf("sensor.drying_target_temp" to "s3"), emptyMap(), 3)
+        assertTrue(ams2ByTargetKey.isAms2Pro())
+
+        val ams2BySubstring = AmsInfo("5", 1, "AMS", mapOf("custom_drying_sensor" to "s4"), emptyMap(), 0)
+        assertTrue(ams2BySubstring.isAms2Pro())
+
+        val amsLite = AmsInfo("6", 1, "Bambu AMS Lite", emptyMap(), emptyMap(), 0)
+        assertFalse(amsLite.isAms2Pro())
+        assertEquals("AMS Lite", amsLite.modelBadge())
+
+        val ht = AmsInfo("7", 1, "AMS HT", emptyMap(), emptyMap(), null)
+        assertTrue(ht.isSingleSlot())
+        assertEquals("AMS HT", ht.displayName())
+        assertEquals(128, ht.amsId())
+        assertNull(ht.modelBadge())
+    }
+
+    @Test fun printersFromResolvesDryingKeysFromEntityIdWhenUniqueIdIsMissing() {
+        val serial = "TEST_SERIAL"
+        val devices = JsonArray(listOf(
+            json.parseToJsonElement("""{"id":"p1","identifiers":[["bambu_lab","$serial"]],"model":"X1C"}""").jsonObject,
+            json.parseToJsonElement("""{"id":"ams_n3f_hw","via_device_id":"p1","model":"AMS","hw_ver":"N3F-1.0","identifiers":[["bambu_lab","${serial}_ams_0"]]}""").jsonObject,
+            json.parseToJsonElement("""{"id":"ams_name_user","via_device_id":"p1","model":"AMS","name_by_user":"AMS 2 Pro Custom","identifiers":[["bambu_lab","${serial}_ams_1"]]}""").jsonObject,
+            json.parseToJsonElement("""{"id":"ams_ht_hw","via_device_id":"p1","model":"AMS","hw_version":"N3S-1.0","identifiers":[["bambu_lab","${serial}_ams_128"]]}""").jsonObject,
+        ))
+        val entities = JsonArray(listOf(
+            json.parseToJsonElement("""{"entity_id":"sensor.drying_target_temp","device_id":"ams_n3f_hw","platform":"bambu_lab"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams_remain_drying_time","device_id":"ams_n3f_hw","platform":"bambu_lab"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams_tray_1","device_id":"ams_n3f_hw","platform":"bambu_lab"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"binary_sensor.printer_drying","device_id":"ams_name_user","platform":"bambu_lab"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ams2_tray_1","device_id":"ams_name_user","platform":"bambu_lab"}""").jsonObject,
+            json.parseToJsonElement("""{"entity_id":"sensor.ht_tray_0","device_id":"ams_ht_hw","platform":"bambu_lab","translation_key":"tray","unique_id":"${serial}_tray_0"}""").jsonObject,
+        ))
+        val amsList = printersFrom(devices, entities).single().ams
+        assertEquals(3, amsList.size)
+        assertEquals("AMS 2 Pro", amsList[0].model)
+        assertEquals(true, amsList[0].trays.containsKey(1))
+
+        assertEquals("AMS 2 Pro", amsList[1].model)
+        assertEquals("AMS HT", amsList[2].model)
     }
 }
