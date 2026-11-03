@@ -97,7 +97,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("sensor", "printer_name", "Demo X1C")
         add("sensor", "print_weight", 38.4); add("sensor", "print_length", 12.7)
         add("sensor", "print_bed_type", "textured_plate")
-        add("sensor", "nozzle_diameter", 0.4); add("sensor", "nozzle_type", "hardened_steel")
+        add("sensor", "nozzle_diameter", 0.4); add("sensor", "nozzle_type", "hardened_steel"); add("sensor", "active_nozzle", "right")
         add("sensor", "printable_objects", 3, buildJsonObject { putJsonObject("objects") { put("101", "Panda body"); put("102", "Panda head"); put("103", "Bamboo stick") } })
         add("sensor", "skipped_objects", 0, buildJsonObject { putJsonArray("objects") {} })
         add("sensor", "wifi_signal", -52)

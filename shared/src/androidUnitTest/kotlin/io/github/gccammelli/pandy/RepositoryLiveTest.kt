@@ -186,4 +186,26 @@ class RepositoryLiveTest {
         } finally { Repo.logout(); Dispatchers.resetMain() }
     }
 
+    @Test fun selectExtruderFallsBackToSendGcodeWhenSelectExtruderServiceFails() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val demo = FakeHomeAssistant()
+            val posted = mutableListOf<Pair<String, JsonObject>>()
+            init(object : HaBackend by demo {
+                override suspend fun post(path: String, body: String): String {
+                    posted += path to json.parseToJsonElement(body).jsonObject
+                    if (path.endsWith("/select_extruder")) throw ApiException("Service not found")
+                    return demo.post(path, body)
+                }
+            })
+            val printer = Printer(demo.printers().single(), emptyMap())
+            printer.selectExtruder("left", {}).join()
+            assertTrue(posted.any { it.first.endsWith("/select_extruder") && it.second.s("extruder_index") == "1" })
+            assertTrue(posted.any { it.first.endsWith("/send_command") && it.second.s("command") == "T1\n" })
+            printer.selectExtruder("right", {}).join()
+            assertTrue(posted.any { it.first.endsWith("/select_extruder") && it.second.s("extruder_index") == "0" })
+            assertTrue(posted.any { it.first.endsWith("/send_command") && it.second.s("command") == "T0\n" })
+        } finally { Repo.stop(); Dispatchers.resetMain() }
+    }
+
 }

@@ -146,4 +146,12 @@ class DemoControlsTest {
         assertEquals(550, assertFailsWith<PrinterStorageException> { ha.deleteFile("missing.3mf") }.code)
         assertEquals(550, assertFailsWith<PrinterStorageException> { ha.deleteFile("/missing.3mf") }.code)
     }
+
+    @Test fun demoSelectExtruderSwitchesActiveNozzle() = runTest {
+        val ha = FakeHomeAssistant()
+        ha.command("bambu_lab/select_extruder", "extruder_index" to "1")
+        assertEquals("left", json.parseToJsonElement(ha.get("/api/states/sensor.x1c_demo_active_nozzle")).jsonObject.s("state"))
+        ha.command("bambu_lab/select_extruder", "extruder_index" to "0")
+        assertEquals("right", json.parseToJsonElement(ha.get("/api/states/sensor.x1c_demo_active_nozzle")).jsonObject.s("state"))
+    }
 }
