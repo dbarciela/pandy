@@ -412,7 +412,6 @@ fun NozzleCard(p: Printer, modifier: Modifier = Modifier, onClick: () -> Unit) =
     }
 }
 
-@Composable
 fun tempColor(now: Double?, target: Double?): Color {
     val n = now ?: return C.Text
     val t = target ?: 0.0

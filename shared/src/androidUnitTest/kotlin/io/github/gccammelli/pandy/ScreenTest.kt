@@ -1857,13 +1857,10 @@ class ScreenTest {
 
     @Test fun heaterIndicatorsRespectTheTwoDegreeDeadBandAndMissingTargets() {
         val value=androidx.compose.runtime.mutableStateOf<Pair<Double?,Double?>>(25.0 to 100.0)
-        var color: androidx.compose.ui.graphics.Color?=null
         show("Temperature") {
             androidx.compose.foundation.layout.Column {
                 T("Temperature")
                 TempText(value.value.first,value.value.second,24.sp,12.sp)
-                val next=tempColor(value.value.first,value.value.second)
-                androidx.compose.runtime.SideEffect { color=next }
             }
         }
         for((now,target,arrow) in listOf(
@@ -1874,7 +1871,7 @@ class ScreenTest {
             for(mark in listOf("↑","↓")) if(mark==arrow) compose.onNodeWithText(mark,substring=false).assertExists()
                 else compose.onNodeWithText(mark,substring=false).assertDoesNotExist()
             if(now==null) compose.onNodeWithText("--",substring=false).assertExists()
-            assertEquals(when(arrow) { "↑" -> C.Orange; "↓" -> C.Blue; else -> C.Text },color)
+            assertEquals(when(arrow) { "↑" -> C.Orange; "↓" -> C.Blue; else -> C.Text }, tempColor(now, target))
         }
     }
 
