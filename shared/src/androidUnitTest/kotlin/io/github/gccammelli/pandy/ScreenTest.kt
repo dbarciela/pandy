@@ -1017,16 +1017,20 @@ class ScreenTest {
         compose.onNodeWithText("On").performClick()
         compose.onNodeWithText("2 changes").assertExists()
         compose.onNodeWithText("Done").performClick()
+        compose.waitForIdle()
         compose.onNodeWithText("2 changed for this print").performScrollTo().assertExists()
         compose.onNodeWithText("Print (demo)").performClick()
+        compose.waitForIdle()
         compose.onNodeWithText("Layer height: 0.12 mm", substring = true).assertExists()
         compose.onNodeWithText("Generate support: On", substring = true).assertExists()
         compose.onNodeWithText("Cancel").performClick()
+        compose.waitForIdle()
         compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Reset all to profile").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Reset all to profile").performClick()
         compose.waitUntil(5000) { compose.onAllNodes(hasText("Done") and isEnabled()).fetchSemanticsNodes().isNotEmpty() } // Done waits for the slicer's settings
         compose.onNodeWithText("Done").performClick()
+        compose.waitForIdle()
         compose.onNodeWithText("Use the model's profile").performScrollTo().assertExists()
         org.junit.Assert.assertTrue(commands.isEmpty())
     }
