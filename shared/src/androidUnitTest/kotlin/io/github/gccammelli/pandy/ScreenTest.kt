@@ -2979,7 +2979,7 @@ class ScreenTest {
             set = arrayOf(
                 "binary_sensor.drying_active" to entity(if (drying) "on" else "off"),
                 "sensor.drying_remaining" to entity(if (drying) "4.2" else "0.0"),
-                "sensor.drying_target" to entity("55.0"),
+                "sensor.drying_target" to entity(if (drying) "55.0" else "0.0"),
                 "sensor.ams_temp_val" to entity("42.0")
             )
         )
@@ -3065,8 +3065,13 @@ class ScreenTest {
         compose.waitForIdle()
 
         compose.onNodeWithText("Filament Drying - AMS A").assertExists()
-        compose.onNodeWithText("Rotate spools periodically").assertExists()
+        compose.onNodeWithText("Rotate spool when drying").assertExists()
+        compose.onNodeWithText("Unload filament from feeder and secure the tip into the spool rim before rotating.").assertExists()
         compose.onNodeWithText("Start drying").assertExists()
+
+        // Verify initial idle state starts with PLA preset defaults (50°C and 4h) without clicking presets
+        compose.onNodeWithText("50°C").assertExists()
+        compose.onNodeWithText("4h").assertExists()
 
         // Test preset clicks
         compose.onNodeWithText("PETG").performClick()
@@ -3124,6 +3129,10 @@ class ScreenTest {
         // Test toggle rotate tray
         compose.onNode(isToggleable()).performClick()
         compose.waitForIdle()
+        compose.onNodeWithText("Even heating. Disabled to dry without rotating.").assertExists()
+        compose.onNode(isToggleable()).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Unload filament from feeder and secure the tip into the spool rim before rotating.").assertExists()
 
         // Click Start drying
         compose.onNodeWithText("Start drying").performClick()

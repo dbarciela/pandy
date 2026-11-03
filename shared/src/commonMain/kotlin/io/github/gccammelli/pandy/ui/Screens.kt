@@ -593,10 +593,15 @@ fun AmsDryingSheet(
     val targetTemp = p.amsDryingTargetTemp(ams)
     val currentTemp = p.amsTemp(ams)
 
-    var temp by remember(ams.amsId()) { mutableStateOf(targetTemp?.toInt()?.coerceIn(45, 65) ?: 50) }
-    var duration by remember(ams.amsId()) { mutableStateOf(remainingHours?.toInt()?.coerceIn(1, 24) ?: 4) }
+    val initialPreset = if (isDrying) {
+        DRYING_PRESETS.firstOrNull { it.temp == targetTemp?.toInt() }
+    } else {
+        DRYING_PRESETS.first()
+    }
+    var temp by remember(ams.amsId()) { mutableStateOf(if (isDrying) (targetTemp?.toInt()?.coerceIn(45, 65) ?: 50) else (initialPreset?.temp ?: 50)) }
+    var duration by remember(ams.amsId()) { mutableStateOf(if (isDrying && remainingHours != null && remainingHours > 0.0) remainingHours.toInt().coerceIn(1, 24) else (initialPreset?.duration ?: 4)) }
     var rotateTray by remember(ams.amsId()) { mutableStateOf(true) }
-    var selectedPreset by remember(ams.amsId()) { mutableStateOf<String?>(DRYING_PRESETS.firstOrNull { it.temp == (targetTemp?.toInt() ?: 50) }?.name ?: "PLA") }
+    var selectedPreset by remember(ams.amsId()) { mutableStateOf<String?>(initialPreset?.name) }
 
     val amsTitle = "Filament Drying - " + ams.displayName()
 
@@ -715,9 +720,14 @@ fun AmsDryingSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        T("Rotate spools periodically", 15.sp, weight = FontWeight.Medium)
+                        T("Rotate spool when drying", 15.sp, weight = FontWeight.Medium)
                         Gap(2.dp)
-                        T("Even heating. Disable if spool rims are deformed.", 11.sp, C.Sub)
+                        T(
+                            if (rotateTray) "Unload filament from feeder and secure the tip into the spool rim before rotating."
+                            else "Even heating. Disabled to dry without rotating.",
+                            11.sp,
+                            C.Sub
+                        )
                     }
                     Spacer(Modifier.width(8.dp))
                     Toggle(rotateTray) { rotateTray = it }
