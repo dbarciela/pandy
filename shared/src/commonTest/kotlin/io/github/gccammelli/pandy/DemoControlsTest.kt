@@ -119,9 +119,18 @@ class DemoControlsTest {
         val printer = Printer(info, emptyMap())
         val ams = info.ams.first()
         ha.startAmsDrying(printer, ams, 55, 4, true)
+        assertEquals("on", ha.state("binary_sensor", "AMS_1_drying").s("state"))
+        assertEquals("4.0", ha.state("sensor", "AMS_1_remaining_drying_time").s("state"))
+        assertEquals("55.0", ha.state("sensor", "AMS_1_drying_target_temp").s("state"))
+
         ha.stopAmsDrying(printer, ams)
+        assertEquals("off", ha.state("binary_sensor", "AMS_1_drying").s("state"))
+
         ha.startAmsDrying(printer, ams.copy(haId = ""), 55, 4, false)
+        assertEquals("on", ha.state("binary_sensor", "AMS_1_drying").s("state"))
+
         ha.stopAmsDrying(printer, ams.copy(haId = ""))
+        assertEquals("off", ha.state("binary_sensor", "AMS_1_drying").s("state"))
     }
 
     @Test fun streamFiltersSnapshotAndSubsequentChanges() = runTest {

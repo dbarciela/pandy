@@ -480,11 +480,13 @@ fun Printer.setAmsSettings(amsId: Int, startup: Boolean, insertion: Boolean, rem
 }
 
 suspend fun HaBackend.startAmsDrying(p: Printer, a: AmsInfo, temp: Int, durationHours: Int, rotateTray: Boolean) {
+    val validTemp = temp.coerceIn(45, 85)
+    val validDuration = durationHours.coerceIn(1, 24)
     val data = buildJsonObject {
         put("device_id", a.haId.ifBlank { p.info.haId })
         put("ams_id", a.amsId())
-        put("temp", temp)
-        put("duration", durationHours)
+        put("temp", validTemp)
+        put("duration", validDuration)
         put("rotate_tray", rotateTray)
     }
     call("bambu_lab", "start_filament_drying", data)
@@ -601,7 +603,7 @@ fun filamentKey(type: String, colour: String) = "${type.trim().uppercase()}|${he
 
 /** The absolute tray ID used by the printer protocol: standard AMS 0–103, AMS HT 128–135. */
 fun AmsInfo.isSingleSlot() = model.contains("HT", ignoreCase = true) || model.contains("N3S", ignoreCase = true) || protocolId?.let { it >= 128 } == true
-fun AmsInfo.isAms2Pro() = !isSingleSlot() && (
+fun AmsInfo.isAms2Pro() = !isSingleSlot() && !model.contains("Lite", ignoreCase = true) && (
     model.contains("2 Pro", ignoreCase = true) || model.contains("N3F", ignoreCase = true) || model.contains("AMS 2", ignoreCase = true) ||
     ids.containsKey("binary_sensor.drying") || ids.containsKey("sensor.remaining_drying_time") || ids.containsKey("sensor.drying_target_temp") ||
     ids.keys.any { it.contains("drying") }

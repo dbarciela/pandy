@@ -232,8 +232,9 @@ fun FilamentScreen(p: Printer) {
                             Column(Modifier.weight(1f)) {
                                 T(if (isDrying) "Filament drying active" else "Filament drying", 13.sp, weight = FontWeight.Medium)
                                 if (isDrying && remaining != null && remaining > 0.0) {
-                                    val hours = remaining.toInt()
-                                    val mins = ((remaining - hours) * 60).toInt()
+                                    val totalMins = kotlin.math.round(remaining * 60).toInt()
+                                    val hours = totalMins / 60
+                                    val mins = totalMins % 60
                                     T("Remaining: ${hours}h ${mins}m", 11.sp, C.Sub)
                                 } else if (!isDrying) {
                                     T("Preheat & dry filament spools", 11.sp, C.Sub)
@@ -598,10 +599,10 @@ fun AmsDryingSheet(
     } else {
         DRYING_PRESETS.first()
     }
-    var temp by remember(ams.amsId()) { mutableStateOf(if (isDrying) (targetTemp?.toInt()?.coerceIn(45, 65) ?: 50) else (initialPreset?.temp ?: 50)) }
-    var duration by remember(ams.amsId()) { mutableStateOf(if (isDrying && remainingHours != null && remainingHours > 0.0) remainingHours.toInt().coerceIn(1, 24) else (initialPreset?.duration ?: 4)) }
-    var rotateTray by remember(ams.amsId()) { mutableStateOf(true) }
-    var selectedPreset by remember(ams.amsId()) { mutableStateOf<String?>(initialPreset?.name) }
+    var temp by remember(ams.amsId(), isDrying) { mutableStateOf(if (isDrying) (targetTemp?.toInt()?.coerceIn(45, 65) ?: 50) else (initialPreset?.temp ?: 50)) }
+    var duration by remember(ams.amsId(), isDrying) { mutableStateOf(if (isDrying && remainingHours != null && remainingHours > 0.0) remainingHours.toInt().coerceIn(1, 24) else (initialPreset?.duration ?: 4)) }
+    var rotateTray by remember(ams.amsId(), isDrying) { mutableStateOf(true) }
+    var selectedPreset by remember(ams.amsId(), isDrying) { mutableStateOf<String?>(initialPreset?.name) }
 
     val amsTitle = "Filament Drying - " + ams.displayName()
 
@@ -626,8 +627,9 @@ fun AmsDryingSheet(
                     T("Drying in progress", 18.sp, weight = FontWeight.Bold)
                     Gap(4.dp)
                     if (remainingHours != null && remainingHours > 0.0) {
-                        val hours = remainingHours.toInt()
-                        val mins = ((remainingHours - hours) * 60).toInt()
+                        val totalMins = kotlin.math.round(remainingHours * 60).toInt()
+                        val hours = totalMins / 60
+                        val mins = totalMins % 60
                         T("Remaining: ${hours}h ${mins}m", 15.sp, C.Orange, FontWeight.Medium)
                     }
                     Gap(12.dp)

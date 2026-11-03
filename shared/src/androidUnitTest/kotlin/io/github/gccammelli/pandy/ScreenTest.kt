@@ -3329,6 +3329,7 @@ class ScreenTest {
                         "devices_idle" -> DevicesTab(st.copy(printers = listOf(ams2ProPrinter)), ams2ProPrinter)
                         "devices_drying" -> DevicesTab(st.copy(printers = listOf(dryingPrinter)), dryingPrinter)
                         "devices_lite" -> DevicesTab(st.copy(printers = listOf(litePrinter)), litePrinter)
+                        "screen_lite" -> FilamentScreen(litePrinter)
                         "idle_sheet" -> AmsDryingSheet(ams2ProPrinter, ams2Pro, {}) { errMessage = it }
                         "drying_sheet" -> AmsDryingSheet(dryingPrinter, ams2Pro, {}) { errMessage = it }
                         "no_temp_sheet" -> AmsDryingSheet(noTempDryingPrinter, noTempAms, {}) { errMessage = it }
@@ -3440,6 +3441,16 @@ class ScreenTest {
         compose.waitForIdle()
         compose.onNodeWithText("1h").assertExists()
 
+        // Test duration steppers up to 24h limit
+        for (i in 1..25) {
+            compose.onNodeWithContentDescription("Increase duration").performClick()
+            compose.waitForIdle()
+        }
+        compose.onNodeWithText("24h").assertExists()
+        compose.onNodeWithContentDescription("Increase duration").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("24h").assertExists()
+
         // Test toggle rotate tray
         compose.onNode(isToggleable()).performClick()
         compose.waitForIdle()
@@ -3471,8 +3482,23 @@ class ScreenTest {
         compose.onNodeWithText("Drying in progress").assertExists()
         compose.onNodeWithText("Target temperature").assertExists()
 
+        // Test that AMS Lite does not display drying controls on the filament screen
+        compose.runOnIdle { mode.value = "screen_lite" }
+        compose.waitForIdle()
+        compose.onNodeWithText("Filament drying").assertDoesNotExist()
+        compose.onNodeWithText("Preheat & dry filament spools").assertDoesNotExist()
+
         // Direct Printer extensions
+        val startCount = commands.count { it.first.endsWith("start_filament_drying") }
+        val stopCount = commands.count { it.first.endsWith("stop_filament_drying") }
         ams2ProPrinter.startAmsDrying(ams2Pro, 55, 4, true) { errMessage = it }
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.count { it.first.endsWith("start_filament_drying") } > startCount }
+        val lastStart = commands.last { it.first.endsWith("start_filament_drying") }
+        assertTrue(lastStart.second.contains("\"temp\":55"))
+        assertTrue(lastStart.second.contains("\"duration\":4"))
+        assertTrue(lastStart.second.contains("\"rotate_tray\":true"))
+
         ams2ProPrinter.stopAmsDrying(ams2Pro) { errMessage = it }
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.count { it.first.endsWith("stop_filament_drying") } > stopCount }
     }
 }

@@ -189,6 +189,10 @@ class LanBoundaryTest {
                             "tray": []
                         },
                         {
+                            "id": "2",
+                            "tray": []
+                        },
+                        {
                             "id": "128",
                             "type": "N3S",
                             "tray": []
@@ -200,6 +204,7 @@ class LanBoundaryTest {
                 "module": [
                     {"name": "n3f/0", "hw_ver": "N3F02", "project_name": "AMS 2 Pro"},
                     {"name": "ams/1", "hw_ver": "AMS08", "project_name": "AMS"},
+                    {"name": "ams_f1/2", "hw_ver": "AMS_F1", "project_name": "AMS Lite"},
                     {"name": "n3s/128", "hw_ver": "N3S01", "project_name": "AMS HT"}
                 ]
             }
@@ -210,8 +215,12 @@ class LanBoundaryTest {
         assertEquals("on", ams0Rows.first { it.first.key == "drying" }.second.state)
 
         val ams1Rows = moduleEntities.filter { it.first.device == "ams1" }
-        assertEquals("AMS 2 Pro", ams1Rows.first().first.deviceModel)
-        assertEquals("off", ams1Rows.first { it.first.key == "drying" }.second.state)
+        assertEquals("AMS", ams1Rows.first().first.deviceModel)
+        assertFalse(ams1Rows.any { it.first.key == "drying" })
+
+        val ams2Rows = moduleEntities.filter { it.first.device == "ams2" }
+        assertEquals("AMS Lite", ams2Rows.first().first.deviceModel)
+        assertFalse(ams2Rows.any { it.first.key == "drying" })
 
         val amsHtRows = moduleEntities.filter { it.first.device == "ams128" }
         assertEquals("AMS HT", amsHtRows.first().first.deviceModel)

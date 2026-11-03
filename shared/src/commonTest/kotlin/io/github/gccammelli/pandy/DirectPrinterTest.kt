@@ -346,6 +346,12 @@ class DirectPrinterTest {
             assertEquals("4", startDefault.s("duration"))
             assertEquals("false", startDefault.s("rotate_tray"))
 
+            // Out-of-range inputs clamped
+            printer.command("bambu_lab/start_filament_drying", "temp" to "20", "duration" to "50")
+            val startClamped = link.sent.last().o("print")!!
+            assertEquals("45", startClamped.s("temp"))
+            assertEquals("24", startClamped.s("duration"))
+
             printer.command("bambu_lab/stop_filament_drying")
             assertEquals("0", link.sent.last().o("print")!!.s("ams_id"))
         } finally { printer.stop() }

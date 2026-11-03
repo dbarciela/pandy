@@ -248,6 +248,23 @@ class AmsTest {
 
         b.stopAmsDrying(p, blankAms)
         assertEquals("p_ha_id", b.posts.last().second.s("device_id"))
+
+        // AMS HT drying and out-of-range input clamping
+        val htAms = AmsInfo("ams_ht_dev", 2, "AMS HT", emptyMap(), emptyMap(), 128)
+        b.startAmsDrying(p, htAms, 80, 8, false)
+        assertEquals("ams_ht_dev", b.posts.last().second.s("device_id"))
+        assertEquals("128", b.posts.last().second.s("ams_id"))
+        assertEquals("80", b.posts.last().second.s("temp"))
+        assertEquals("8", b.posts.last().second.s("duration"))
+
+        // Out-of-range inputs clamped to [45..85] and [1..24]
+        b.startAmsDrying(p, ams, 30, 0, true)
+        assertEquals("45", b.posts.last().second.s("temp"))
+        assertEquals("1", b.posts.last().second.s("duration"))
+
+        b.startAmsDrying(p, ams, 100, 30, true)
+        assertEquals("85", b.posts.last().second.s("temp"))
+        assertEquals("24", b.posts.last().second.s("duration"))
     }
 
     @Test fun amsModelBadgeAndDisplayNamesCoverAllVariants() {

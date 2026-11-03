@@ -287,7 +287,7 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
         val trays = (a["tray"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
         val amsModule = modules.firstOrNull {
             val name = it.str("name").orEmpty().lowercase()
-            name == "ams/$ai" || name == "ams$ai" || name == "n3f/$ai" || name == "n3s/$ai" || name == "ams_${ai + 1}"
+            name == "ams/$ai" || name == "ams$ai" || name == "ams_f1/$ai" || name == "ams_f1_$ai" || name == "n3f/$ai" || name == "n3s/$ai" || name == "ams_${ai + 1}"
         }
         val deviceModel = amsModel(ai, a, amsModule?.str("hw_ver").orEmpty(), (amsModule?.str("project_name") ?: amsModule?.str("name")).orEmpty(), trays.size)
         val isHt = deviceModel == "AMS HT"
@@ -298,12 +298,14 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
         a.int("humidity")?.let { add("sensor", "humidity_index", 6 - it, device = dev, uid = "AMS_${amsIndex + 1}_humidity_index", deviceModel = deviceModel) }
         a.int("humidity_raw")?.let { add("sensor", "humidity", it, device = dev, uid = "AMS_${amsIndex + 1}_humidity", deviceModel = deviceModel) }
         a.dbl("temp")?.let { add("sensor", "ams_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_temperature", deviceModel = deviceModel) }
-        if (a.get("is_drying") != null || a.get("drying_status") != null) {
-            val isDrying = a.flag("is_drying") == true || a.str("drying_status") == "drying"
-            add("binary_sensor", "drying", if (isDrying) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_drying", deviceModel = deviceModel)
+        if (deviceModel == "AMS 2 Pro" || deviceModel == "AMS HT") {
+            if (a.get("is_drying") != null || a.get("drying_status") != null) {
+                val isDrying = a.flag("is_drying") == true || a.str("drying_status") == "drying"
+                add("binary_sensor", "drying", if (isDrying) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_drying", deviceModel = deviceModel)
+            }
+            a.dbl("remain_time")?.let { add("sensor", "remaining_drying_time", it / 60.0, device = dev, uid = "AMS_${amsIndex + 1}_remaining_drying_time", deviceModel = deviceModel) }
+            (a.dbl("target_temp") ?: a.dbl("drying_temp"))?.let { add("sensor", "drying_target_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_drying_target_temp", deviceModel = deviceModel) }
         }
-        a.dbl("remain_time")?.let { add("sensor", "remaining_drying_time", it / 60.0, device = dev, uid = "AMS_${amsIndex + 1}_remaining_drying_time", deviceModel = deviceModel) }
-        a.dbl("target_temp")?.let { add("sensor", "drying_target_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_drying_target_temp", deviceModel = deviceModel) }
         (0 until if (deviceModel == "AMS HT") 1 else 4).forEach { ti ->
             val t = trays.firstOrNull { it.int("id") == ti } ?: JsonObject(emptyMap())
             val type = t.str("tray_type").orEmpty()
@@ -402,13 +404,14 @@ fun amsStopDryingCommand(sequenceId: String, amsId: Int) =
 private fun amsModel(ai: Int, a: JsonObject, modHw: String, modName: String, traysCount: Int): String {
     val modelOrType = "${a.str("model").orEmpty()} ${a.str("type").orEmpty()}"
     val hw = "${a.str("hw_version").orEmpty()} ${a.str("hw").orEmpty()} $modHw"
-    val hasDrying = a.get("is_drying") != null || a.get("drying_status") != null || a.get("remain_time") != null || a.get("target_temp") != null
+    val isLite = modelOrType.contains("Lite", true) || modName.contains("ams_f1", true) || modName.contains("Lite", true)
     val isHt = ai >= 128 || modelOrType.contains("HT", true) || modelOrType.contains("N3S", true) || hw.contains("N3S", true) || modName.contains("N3S", true)
-    val isAms2 = !isHt && (modelOrType.contains("2 Pro", true) || modelOrType.contains("N3F", true) || modelOrType.contains("AMS 2", true) ||
-        hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) || hasDrying)
+    val isAms2 = !isHt && !isLite && (modelOrType.contains("2 Pro", true) || modelOrType.contains("N3F", true) || modelOrType.contains("AMS 2", true) ||
+        hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) || modName.contains("n3f", true))
     return when {
         isHt -> "AMS HT"
         isAms2 -> "AMS 2 Pro"
+        isLite -> "AMS Lite"
         else -> "AMS"
     }
 }
@@ -783,8 +786,8 @@ class DirectPrinter(
                 d.s("startup_read_option") == "true", d.s("tray_read_option") == "true", d.s("calibrate_remain_flag") == "true"))
             "bambu_lab/start_filament_drying" -> {
                 val amsId = d.s("ams_id")?.toIntOrNull() ?: 0
-                val temp = d.s("temp")?.toIntOrNull() ?: 50
-                val durationHours = d.s("duration")?.toIntOrNull() ?: 4
+                val temp = (d.s("temp")?.toIntOrNull() ?: 50).coerceIn(45, 85)
+                val durationHours = (d.s("duration")?.toIntOrNull() ?: 4).coerceIn(1, 24)
                 val rotateTray = d.s("rotate_tray") != "false"
                 publish(amsDryingCommand(nextSeq(), amsId, temp, durationHours, rotateTray))
             }
