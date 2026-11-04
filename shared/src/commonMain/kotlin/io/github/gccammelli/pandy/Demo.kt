@@ -304,7 +304,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
             "switch/turn_on", "switch/turn_off" -> setById(target!!, if (service.endsWith("on")) "on" else "off")
             "bambu_lab/select_extruder" -> {
                 val nozzle = if (d.s("extruder_index") == "1") "left" else "right"
-                rows.firstOrNull { it.key == "active_nozzle" }?.let { setById(id(it), nozzle) }
+                setById(id(rows.first { it.key == "active_nozzle" }), nozzle) // the demo printer always has one (see the sensor list above)
             }
             else -> {} // move_axis, extrude_retract, load/unload: nothing to show in the demo
         }

@@ -424,6 +424,6 @@ fun Printer.toggleCamera(on: Boolean, err: (String) -> Unit) = Repo.act(err) {
 
 /** True when Home Assistant (or the direct backend) says the service itself does not exist, as opposed to the call failing. */
 internal fun ApiException.isUnsupportedService(): Boolean {
-    val m = message.orEmpty().lowercase()
+    val m = toString().lowercase() // "ApiException: <message>": the class name carries none of these phrases
     return "not found" in m || "unknown service" in m || "needs home assistant" in m
 }

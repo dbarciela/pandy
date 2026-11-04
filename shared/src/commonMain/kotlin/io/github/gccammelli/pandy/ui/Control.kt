@@ -175,7 +175,7 @@ private fun SpeedSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) = S
 private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
     var selectedNozzle by remember { mutableStateOf(if (p.isDualNozzle && p.activeNozzle == "left") "left" else if (p.isDualNozzle) "right" else null) }
     var switchingTo by remember { mutableStateOf<String?>(null) }
-    if (p.activeNozzle == switchingTo) switchingTo = null
+    val pendingSwitch = switchingTo?.takeIf { it != p.activeNozzle } // done as soon as the printer reports the new nozzle active
     var temp by remember { mutableStateOf(false) }
     val curNozzle = selectedNozzle
     val curTemp = if (curNozzle == "left") (p.leftNozzle ?: p.nozzle) else if (curNozzle == "right") (p.rightNozzle ?: p.nozzle) else p.nozzle
@@ -187,32 +187,26 @@ private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
         else if (curNozzle == "right") (p.state("sensor.right_nozzle_type") ?: p.state("sensor.nozzle_type"))
         else p.state("sensor.nozzle_type")
     val targetKey = if (curNozzle == "left") "left_nozzle" else if (curNozzle == "right") "right_nozzle" else "nozzle"
-    val isSwitching = !p.printing && (switchingTo != null || (p.isDualNozzle && selectedNozzle != null && p.activeNozzle != null && selectedNozzle != p.activeNozzle))
-    // On a dual-nozzle printer, extrude only once the printer confirms the selected nozzle is the active one; unknown telemetry is not safe.
-    val nozzleConfirmed = !p.isDualNozzle || (selectedNozzle != null && p.activeNozzle == selectedNozzle)
+    val isSwitching = nozzleSwitching(p.printing, pendingSwitch, p.isDualNozzle, selectedNozzle, p.activeNozzle)
+    val canExtrude = extrudeAllowed(p.printing, isSwitching, p.isDualNozzle, selectedNozzle, p.activeNozzle, curTemp)
+    fun pickNozzle(side: String) {
+        selectedNozzle = side
+        if (shouldSwitchNozzle(p.printing, p.activeNozzle, pendingSwitch, side)) {
+            switchingTo = side
+            p.selectExtruder(side) { switchingTo = null; err(it) }
+        }
+    }
 
     Sheet(close, "Nozzle & Extruder", centeredTitle = true, confirm = null) {
         if (p.isDualNozzle) {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(C.Fill).padding(3.dp)) {
                 val isLeft = selectedNozzle == "left"
                 Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isLeft) C.Card else Color.Transparent)
-                    .clickable {
-                        selectedNozzle = "left"
-                        if (!p.printing && p.activeNozzle != "left" && switchingTo != "left") {
-                            switchingTo = "left"
-                            p.selectExtruder("left") { switchingTo = null; err(it) }
-                        }
-                    }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    .clickable { pickNozzle("left") }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                     T("Left Nozzle (L)", 13.sp, if (isLeft) C.Accent else C.Sub, if (isLeft) FontWeight.Bold else FontWeight.Normal)
                 }
                 Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (!isLeft) C.Card else Color.Transparent)
-                    .clickable {
-                        selectedNozzle = "right"
-                        if (!p.printing && p.activeNozzle != "right" && switchingTo != "right") {
-                            switchingTo = "right"
-                            p.selectExtruder("right") { switchingTo = null; err(it) }
-                        }
-                    }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    .clickable { pickNozzle("right") }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                     T("Right Nozzle (R)", 13.sp, if (!isLeft) C.Accent else C.Sub, if (!isLeft) FontWeight.Bold else FontWeight.Normal)
                 }
             }
@@ -223,9 +217,9 @@ private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
             Column(Modifier.width(110.dp).clip(RoundedCornerShape(10.dp)).background(C.Fill).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 T("Extruder", 13.sp, C.Text)
                 Gap(10.dp)
-                KeyButton(Icons.Default.ArrowDropUp, enabled = !p.printing && !isSwitching && nozzleConfirmed && (curTemp ?: 0.0) >= 170) { p.extrude(false, err) } // up: pull filament back
+                KeyButton(Icons.Default.ArrowDropUp, enabled = canExtrude) { p.extrude(false, err) } // up: pull filament back
                 Gap(16.dp)
-                KeyButton(Icons.Default.ArrowDropDown, enabled = !p.printing && !isSwitching && nozzleConfirmed && (curTemp ?: 0.0) >= 170) { p.extrude(true, err) }
+                KeyButton(Icons.Default.ArrowDropDown, enabled = canExtrude) { p.extrude(true, err) }
             }
         }
         if (p.printing) T("Extrusion is unavailable while printing.", 12.sp, C.Sub, modifier = Modifier.padding(top = 6.dp))
@@ -389,3 +383,15 @@ private fun Pad(modifier: Modifier, enabled: Boolean, move: (String, Int) -> Uni
         T("10", 11.sp, C.Sub, modifier = Modifier.align(Alignment.Center).padding(start = 130.dp, bottom = 130.dp), align = TextAlign.Center)
     }
 }
+
+/** True while a toolhead change is under way: one was asked for and not yet reported, or the chosen nozzle is not the active one. */
+internal fun nozzleSwitching(printing: Boolean, pending: String?, dual: Boolean, selected: String?, active: String?) =
+    !printing && (pending != null || (dual && selected != null && active != null && selected != active))
+
+/** Extrusion needs an idle printer, no switch in progress and, on a dual-nozzle printer, the selected nozzle confirmed active: unknown telemetry is not safe. */
+internal fun extrudeAllowed(printing: Boolean, switching: Boolean, dual: Boolean, selected: String?, active: String?, temp: Double?) =
+    !printing && !switching && (!dual || (selected != null && active == selected)) && (temp ?: 0.0) >= 170
+
+/** Picking a nozzle sends a toolhead change only when idle, the nozzle is not already active, and the same change is not already pending. */
+internal fun shouldSwitchNozzle(printing: Boolean, active: String?, pending: String?, side: String) =
+    !printing && active != side && pending != side
