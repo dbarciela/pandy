@@ -213,8 +213,17 @@ class DirectPrinterTest {
             printer.command("bambu_lab/select_extruder", "extruder_index" to "0")
             assertEquals("select_extruder", link.sent.last().o("print")?.s("command"))
             assertEquals(0, link.sent.last().o("print")?.get("extruder_index")?.jsonPrimitive?.int)
+            for (fields in listOf(emptyArray(), arrayOf("extruder_index" to "invalid"))) {
+                printer.command("bambu_lab/select_extruder", *fields)
+                assertEquals("select_extruder", link.sent.last().o("print")?.s("command"))
+                assertEquals(0, link.sent.last().o("print")?.get("extruder_index")?.jsonPrimitive?.int)
+            }
             printer.command("bambu_lab/send_command", "command" to "T1\n")
+            assertEquals("gcode_line", link.sent.last().o("print")?.s("command"))
             assertEquals("T1\n", link.sent.last().o("print")?.s("param"))
+            printer.command("bambu_lab/send_command")
+            assertEquals("gcode_line", link.sent.last().o("print")?.s("command"))
+            assertEquals("", link.sent.last().o("print")?.s("param"))
             printer.command("bambu_lab/unload_filament"); assertEquals("255", link.sent.last().o("print")?.s("target"))
             printer.command("bambu_lab/print_project_file", "filepath" to "cache/test.3mf", "plate" to "2", "use_ams" to "true", "ams_mapping" to "0,1", "bed_leveling" to "false", "flow_cali" to "true")
             val print = link.sent.last().o("print")!!

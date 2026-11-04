@@ -2392,12 +2392,57 @@ class ScreenTest {
         compose.mainClock.advanceTimeBy(500)
 
         val beforeCount = commands.size
-        // Clicking left tab switches inspection view only, does NOT send select_extruder
+        // Clicking tabs switches inspection view only, does NOT send select_extruder
         compose.onNodeWithText("Left Nozzle (L)").performClick()
+        compose.onNodeWithText("Right Nozzle (R)").performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(beforeCount, commands.size)
         compose.onNodeWithText("Switching Extruder...").assertDoesNotExist()
         compose.onNodeWithText("Extrusion is unavailable while printing.").assertExists()
+    }
+
+    @Test fun dualNozzleWithUnrecognizedActiveToolheadCannotExtrude() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val p = variant(
+            info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds),
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("170"),
+                "sensor.right_nozzle_temp" to entity("170"),
+                "sensor.active_nozzle" to entity("unrecognized")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.onAllNodes(hasClickAction() and !isEnabled()).assertCountEquals(2)
+        assertTrue(commands.none { it.first.endsWith("extrude_retract") })
+    }
+
+    @Test fun dualNozzleDoesNotSwitchFromLeftToRightWhilePrinting() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val p = variant(
+            info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds),
+            set = arrayOf(
+                "sensor.print_status" to entity("running"),
+                "sensor.stage" to entity("printing"),
+                "sensor.left_nozzle_temp" to entity("210"),
+                "sensor.right_nozzle_temp" to entity("215"),
+                "sensor.active_nozzle" to entity("left")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.onNodeWithText("Right Nozzle (R)").performClick()
+        compose.onNodeWithText("Extrusion is unavailable while printing.").assertExists()
+        assertTrue(commands.none { it.first.endsWith("select_extruder") })
     }
 
     @Test fun dualNozzleSwitchingFromLeftToRightDispatchesSelectExtruder0() {

@@ -205,7 +205,29 @@ class RepositoryLiveTest {
             assertTrue(posted.none { it.endsWith("/send_command") })
             assertTrue(ApiException("Needs Home Assistant").isUnsupportedService())
             assertTrue(ApiException("Unknown service bambu_lab.select_extruder").isUnsupportedService())
+            assertTrue(ApiException("Service not found").isUnsupportedService())
             assertTrue(!ApiException("Request timed out").isUnsupportedService())
+        } finally { Repo.stop(); Dispatchers.resetMain() }
+    }
+
+    @Test fun selectExtruderCancellationDoesNotSendRawGcode() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val demo = FakeHomeAssistant()
+            val posted = mutableListOf<String>()
+            init(object : HaBackend by demo {
+                override suspend fun post(path: String, body: String): String {
+                    posted += path
+                    if (path.endsWith("/select_extruder")) throw CancellationException("Selection cancelled")
+                    return demo.post(path, body)
+                }
+            })
+            val printer = Printer(demo.printers().single(), emptyMap())
+            var error: String? = null
+            printer.selectExtruder("left") { error = it }.join()
+            assertEquals("Selection cancelled", error)
+            assertTrue(posted.any { it.endsWith("/select_extruder") })
+            assertTrue(posted.none { it.endsWith("/send_command") })
         } finally { Repo.stop(); Dispatchers.resetMain() }
     }
 
