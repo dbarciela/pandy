@@ -186,6 +186,29 @@ class RepositoryLiveTest {
         } finally { Repo.logout(); Dispatchers.resetMain() }
     }
 
+    @Test fun selectExtruderDoesNotSendRawGcodeAfterAnyOtherFailure() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val demo = FakeHomeAssistant()
+            val posted = mutableListOf<String>()
+            init(object : HaBackend by demo {
+                override suspend fun post(path: String, body: String): String {
+                    posted += path
+                    if (path.endsWith("/select_extruder")) throw ApiException("Request timed out")
+                    return demo.post(path, body)
+                }
+            })
+            val printer = Printer(demo.printers().single(), emptyMap())
+            var error: String? = null
+            printer.selectExtruder("left") { error = it }.join()
+            assertEquals("Request timed out", error)
+            assertTrue(posted.none { it.endsWith("/send_command") })
+            assertTrue(ApiException("Needs Home Assistant").isUnsupportedService())
+            assertTrue(ApiException("Unknown service bambu_lab.select_extruder").isUnsupportedService())
+            assertTrue(!ApiException("Request timed out").isUnsupportedService())
+        } finally { Repo.stop(); Dispatchers.resetMain() }
+    }
+
     @Test fun selectExtruderFallsBackToSendGcodeWhenSelectExtruderServiceFails() = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {

@@ -188,6 +188,8 @@ private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
         else p.state("sensor.nozzle_type")
     val targetKey = if (curNozzle == "left") "left_nozzle" else if (curNozzle == "right") "right_nozzle" else "nozzle"
     val isSwitching = !p.printing && (switchingTo != null || (p.isDualNozzle && selectedNozzle != null && p.activeNozzle != null && selectedNozzle != p.activeNozzle))
+    // On a dual-nozzle printer, extrude only once the printer confirms the selected nozzle is the active one; unknown telemetry is not safe.
+    val nozzleConfirmed = !p.isDualNozzle || (selectedNozzle != null && p.activeNozzle == selectedNozzle)
 
     Sheet(close, "Nozzle & Extruder", centeredTitle = true, confirm = null) {
         if (p.isDualNozzle) {
@@ -221,9 +223,9 @@ private fun NozzleSheet(p: Printer, err: (String) -> Unit, close: () -> Unit) {
             Column(Modifier.width(110.dp).clip(RoundedCornerShape(10.dp)).background(C.Fill).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 T("Extruder", 13.sp, C.Text)
                 Gap(10.dp)
-                KeyButton(Icons.Default.ArrowDropUp, enabled = !p.printing && !isSwitching && (curTemp ?: 0.0) >= 170) { p.extrude(false, err) } // up: pull filament back
+                KeyButton(Icons.Default.ArrowDropUp, enabled = !p.printing && !isSwitching && nozzleConfirmed && (curTemp ?: 0.0) >= 170) { p.extrude(false, err) } // up: pull filament back
                 Gap(16.dp)
-                KeyButton(Icons.Default.ArrowDropDown, enabled = !p.printing && !isSwitching && (curTemp ?: 0.0) >= 170) { p.extrude(true, err) }
+                KeyButton(Icons.Default.ArrowDropDown, enabled = !p.printing && !isSwitching && nozzleConfirmed && (curTemp ?: 0.0) >= 170) { p.extrude(true, err) }
             }
         }
         if (p.printing) T("Extrusion is unavailable while printing.", 12.sp, C.Sub, modifier = Modifier.padding(top = 6.dp))
