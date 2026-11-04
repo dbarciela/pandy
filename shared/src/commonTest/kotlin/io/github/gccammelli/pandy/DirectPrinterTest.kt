@@ -28,6 +28,37 @@ class DirectPrinterTest {
     private fun report(extra: String = "") = """{"print":{"command":"push_status","gcode_state":"RUNNING","mc_percent":12${extra}},"info":{"module":[{"name":"ota","sw_ver":"1.2.3"}]}}"""
     private suspend fun DirectPrinter.command(service: String, vararg fields: Pair<String, String>) = post("/api/services/$service", buildJsonObject { fields.forEach { (k,v) -> put(k,v) } }.toString())
 
+    @Test fun directPrinterDispatchesDoorStatCommand() = kotlinx.coroutines.runBlocking<Unit> {
+        val link = Link(report())
+        val direct = DirectPrinter(config, true, { link })
+        try {
+            registry(direct)
+            direct.command("bambu_lab/set_door_stat", "config" to "1")
+            val sent1 = link.sent.last().o("system")!!
+            assertEquals("set_door_stat", sent1.s("command"))
+            assertEquals("1", sent1.s("config"))
+
+            direct.command("bambu_lab/set_door_stat", "enable" to "true")
+            val sent2 = link.sent.last().o("system")!!
+            assertEquals("set_door_stat", sent2.s("command"))
+            assertEquals("1", sent2.s("config"))
+
+            direct.command("bambu_lab/set_door_stat", "enable" to "false")
+            val sent3 = link.sent.last().o("system")!!
+            assertEquals("set_door_stat", sent3.s("command"))
+            assertEquals("0", sent3.s("config"))
+
+            val before = link.sent.size
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat", "config" to "invalid") }
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat", "config" to "2") }
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat", "enable" to "maybe") }
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat") }
+            assertEquals(before, link.sent.size)
+        } finally {
+            direct.stop()
+        }
+    }
+
     @Test fun settingAFilamentAddressesTheTrayLikeBambuStudio() = runBlocking<Unit> {
         val ams=""","ams":{"ams":[{"id":"0","tray":[{"id":"1","tray_type":"PLA"}]},{"id":"128","tray":[{"id":"0","tray_type":"PETG"}]}]},"vt_tray":{"tray_type":"PLA"},"chamber_target_temper":35"""
         val link=Link(report(ams));val printer=DirectPrinter(config,true,{link})

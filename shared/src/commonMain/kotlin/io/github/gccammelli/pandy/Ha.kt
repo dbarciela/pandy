@@ -448,6 +448,13 @@ fun Printer.setPrintOption(option: String, enabled: Boolean, err: (String) -> Un
     })
 }
 
+/** Changes the open-door warning/pause check firmware setting. */
+fun Printer.setDoorCheck(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
+    bambu("set_door_stat", this@setDoorCheck, buildJsonObject {
+        put("enable", enabled); put("config", if (enabled) 1 else 0)
+    })
+}
+
 /** Updates all three AMS read/remaining-filament preferences in one firmware command. */
 fun Printer.setAmsSettings(amsId: Int, startup: Boolean, insertion: Boolean, remaining: Boolean, err: (String) -> Unit) = Repo.act(err) {
     bambu("ams_user_setting", this@setAmsSettings, buildJsonObject {
