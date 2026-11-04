@@ -244,8 +244,10 @@ class RepositoryCoverageTest {
             backend(demo)
             Repo.state.value = UiState(on = true, printers = listOf(p))
             var errorMessage: String? = null
-            Repo.actPrinter(p.serial, "pause") { errorMessage = it }
-            Repo.actPrinter("NONEXISTENT", "pause") { errorMessage = it }
+            val job = Repo.actPrinter(p.serial, "pause") { errorMessage = it }
+            org.junit.Assert.assertNotNull(job)
+            job!!.join()
+            assertNull(Repo.actPrinter("NONEXISTENT", "pause") { errorMessage = it })
             assertNull(errorMessage)
         } finally { Repo.logout(); Dispatchers.resetMain() }
     }

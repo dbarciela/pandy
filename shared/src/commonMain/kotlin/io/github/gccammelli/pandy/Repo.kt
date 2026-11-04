@@ -329,9 +329,10 @@ object Repo {
     }
 
     /** Dispatches a printer control action (pause, resume, stop) by serial, e.g. from a push notification action. */
-    fun actPrinter(serial: String, action: String, err: (String) -> Unit = {}) {
-        val p = state.value.printers?.firstOrNull { it.serial == serial } ?: return
-        p.button(action, err)
+    /** Returns the running action so callers can wait for it, or null when the printer is not known (yet). */
+    fun actPrinter(serial: String, action: String, err: (String) -> Unit = {}): Job? {
+        val p = state.value.printers?.firstOrNull { it.serial == serial } ?: return null
+        return p.button(action, err)
     }
 
     fun stop() { liveJob?.cancel(); liveJob = null }

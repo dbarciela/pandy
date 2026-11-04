@@ -21,8 +21,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val ALERTS = "alerts"
 private const val ALERTS_CRITICAL = "alerts_critical"
@@ -67,14 +69,37 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val serial = intent.getStringExtra(EXTRA_SERIAL) ?: return
         val action = intent.getStringExtra(EXTRA_ACTION) ?: return
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, -1)
-        if (action == "stop" && notifId != -1) {
-            context.getSystemService(NotificationManager::class.java).cancel(notifId)
+        val app = context.applicationContext
+        val pending = goAsync() // keeps the receiver alive until the printer has answered
+        Repo.start() // the process may have been killed since the notification was posted
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                var error: String? = null
+                val reached = withTimeoutOrNull(ACTION_TIMEOUT_MS) {
+                    Repo.state.first { st -> st.printers?.any { it.serial == serial } == true }
+                    Repo.actPrinter(serial, action) { error = it }?.join()
+                } != null
+                val failure = if (!reached) "Pandy could not reach the printer" else error
+                if (failure == null) {
+                    // Stop dismisses the alert only once the printer accepted it.
+                    if (action == "stop" && notifId != -1) app.getSystemService(NotificationManager::class.java).cancel(notifId)
+                } else {
+                    AndroidNotifier(app).showEvent(PrintEvent("Could not $action the print", failure, PrintEventType.FAILED, serial = serial))
+                }
+            } finally {
+                pending.finish()
+            }
         }
-        Repo.actPrinter(serial, action)
     }
 }
 
+private const val ACTION_TIMEOUT_MS = 8_000L
+
 class AndroidNotifier(private val ctx: Context) : Notifier {
+    private companion object {
+        /** The last event shown per notification id, so a different event makes sound again but a repeat does not. */
+        val lastEvent = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    }
     override fun show(key: String, title: String, text: String) {
         showEvent(PrintEvent(title, text, type = PrintEventType.FINISH, serial = key))
     }
@@ -85,6 +110,8 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
         val notifId = (event.serial ?: event.title).hashCode()
         val isCritical = event.type == PrintEventType.ATTENTION || event.type == PrintEventType.FAILED
         val channel = if (isCritical) ALERTS_CRITICAL else ALERTS
+        val eventKey = "${event.type}|${event.title}|${event.text}"
+        val repeat = lastEvent.put(notifId, eventKey) == eventKey
 
         val builder = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_stat)
@@ -92,7 +119,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
             .setContentText(event.text)
             .setContentIntent(ctx.openPandy())
             .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(repeat)
             .setCategory(if (isCritical) Notification.CATEGORY_ALARM else Notification.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
 
@@ -114,6 +141,7 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
                 if (bytes != null) {
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bitmap != null && nm.activeNotifications.any { it.id == notifId }) {
+                        builder.setOnlyAlertOnce(true) // adding the picture must not alert again
                         builder.setLargeIcon(bitmap)
                         builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap).bigLargeIcon(null as Bitmap?))
                         nm.notify(notifId, builder.build())
