@@ -93,6 +93,9 @@ fun ControlScreen(p: Printer) {
                     if (p.chamber != null) Chip("chamber", p.chamber, p.chamberTarget, Modifier.align(Alignment.TopEnd))
                     Chip("bed", p.bed, p.bedTarget, Modifier.align(Alignment.BottomStart))
                 }
+                p.doorOpen?.let { open ->
+                    DoorChip(open, Modifier.align(Alignment.BottomCenter))
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MiniCard("Speed", speedLabel(p.speed), Modifier.weight(1f)) { if (p.printing) sheet = "speed" else err("Speed can only be changed while printing") }

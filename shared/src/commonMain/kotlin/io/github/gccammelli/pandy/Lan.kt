@@ -199,6 +199,11 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     // Legacy firmware puts these values in home_flag; newer firmware mirrors them in the hex cfg bitmap.
     (printOptions?.flag("auto_recovery") ?: p.flag("auto_recovery") ?: p.bit("home_flag", 4) ?: p.hexBit("cfg", 16))?.let { add("switch", "auto_recovery", if (it) "on" else "off") }
     (printOptions?.flag("auto_switch_filament") ?: p.flag("auto_switch_filament") ?: p.bit("home_flag", 10) ?: p.hexBit("cfg", 18))?.let { add("switch", "auto_switch_filament", if (it) "on" else "off") }
+    if (c.model !in listOf("A1", "A1 mini", "P1P")) {
+        (p.flag("door_open_check") ?: (p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 20) and 3L) != 0L }) ?: p.bit("home_flag", 26))?.let { add("switch", "door_open_check", if (it) "on" else "off") }
+        // Only home_flag bit 23 follows the door: on a real X1C `stat` bit 23 stays set whether the door is open or closed.
+        p.bit("home_flag", 23)?.let { add("binary_sensor", "door_open", if (it) "on" else "off") }
+    }
     val light = (p["lights_report"] as? JsonArray)?.mapNotNull { it as? JsonObject }?.firstOrNull { it.str("node") == "chamber_light" }?.str("mode")
     add("light", "chamber_light", if (light == "on") "on" else "off")
     for ((key, raw) in listOf("cooling_fan" to "cooling_fan_speed", "aux_fan" to "big_fan1_speed", "chamber_fan" to "big_fan2_speed")) {
@@ -215,7 +220,8 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     val deviceObj = p.o("device") ?: r.o("device")
     val extruder = deviceObj?.o("extruder")
     val extruderInfo = (extruder?.get("info") as? JsonArray)?.mapNotNull { it as? JsonObject }
-    if (!extruderInfo.isNullOrEmpty()) {
+    // Single-nozzle printers (X1C, P1S…) also report one extruder entry, with id 0; only two entries mean a dual-nozzle printer.
+    if (extruderInfo != null && extruderInfo.size > 1) {
         extruderInfo.forEach { entry ->
             val id = entry.int("id")
             val rawTemp = entry.str("temp")?.toLongOrNull() ?: entry.int("temp")?.toLong()
@@ -233,7 +239,7 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
         add("sensor", "active_nozzle", if (activeIdx == 1) "left" else "right")
     }
     val nozzleInfo = (deviceObj?.o("nozzle")?.get("info") as? JsonArray)?.mapNotNull { it as? JsonObject }
-    if (!nozzleInfo.isNullOrEmpty()) {
+    if (nozzleInfo != null && nozzleInfo.size > 1) {
         nozzleInfo.forEach { entry ->
             val id = entry.int("id")
             val prefix = if (id == 1) "left" else if (id == 0) "right" else null
@@ -371,6 +377,14 @@ fun xcamCommand(sequenceId: String, module: String, enabled: Boolean, printHalt:
 fun printOptionCommand(sequenceId: String, option: String, enabled: Boolean) = printCommand(sequenceId, "print_option", buildJsonObject {
     put(option, enabled)
     if (option == "auto_recovery") put("option", if (enabled) 1 else 0)
+})
+
+fun systemCommand(sequenceId: String, command: String, fields: JsonObject = JsonObject(emptyMap())) = buildJsonObject {
+    put("system", JsonObject(buildJsonObject { put("sequence_id", sequenceId); put("command", command) } + fields))
+}
+
+fun doorStatCommand(sequenceId: String, config: Int) = systemCommand(sequenceId, "set_door_stat", buildJsonObject {
+    put("config", config)
 })
 
 fun amsUserSettingCommand(sequenceId: String, amsId: Int, startup: Boolean, insertion: Boolean, remaining: Boolean) =
@@ -750,6 +764,12 @@ class DirectPrinter(
                     .firstOrNull { d[it] != null } ?: throw ApiException("No print option")
                 val enabled = d[option].flagValue() ?: throw ApiException("Invalid print option")
                 publish(printOptionCommand(nextSeq(), option, enabled))
+            }
+            "bambu_lab/set_door_stat" -> {
+                // This changes a safety setting, so a missing or malformed value must not default to "off".
+                val config = d.s("config")?.let { it.toIntOrNull()?.takeIf { v -> v in 0..1 } ?: throw ApiException("Invalid door check value") }
+                    ?: (d["enable"].flagValue() ?: throw ApiException("Invalid door check value")).let { if (it) 1 else 0 }
+                publish(doorStatCommand(nextSeq(), config))
             }
             "bambu_lab/ams_user_setting" -> publish(amsUserSettingCommand(nextSeq(), d.s("ams_id")?.toIntOrNull() ?: 0,
                 d.s("startup_read_option") == "true", d.s("tray_read_option") == "true", d.s("calibrate_remain_flag") == "true"))

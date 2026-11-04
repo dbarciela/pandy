@@ -1006,15 +1006,16 @@ class ScreenTest {
         compose.onNodeWithText("Next").performClick()
         compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Layer height").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Layer height").performClick()
+        compose.onNodeWithText("Default").performClick()
         compose.mainClock.advanceTimeBy(500)
-        compose.onNode(hasSetTextAction()).performTextReplacement("999")
+        compose.onAllNodes(hasSetTextAction()).onLast().performTextReplacement("999")
         compose.onNodeWithText("Save").assertIsNotEnabled()
-        compose.onNode(hasSetTextAction()).performTextReplacement("0.12")
+        compose.onAllNodes(hasSetTextAction()).onLast().performTextReplacement("0.12")
         compose.onNodeWithText("Save").performClick()
         compose.mainClock.advanceTimeBy(500)
-        compose.onNodeWithText("Generate support").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Expand Support").performScrollTo().performClick()
         compose.onNodeWithText("On").performClick()
+        compose.onNodeWithText("2 changes").assertExists()
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithText("2 changed for this print").performScrollTo().assertExists()
         compose.onNodeWithText("Print (demo)").performClick()
@@ -1024,6 +1025,7 @@ class ScreenTest {
         compose.onNodeWithText("Advanced slicer settings").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Reset all to profile").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Reset all to profile").performClick()
+        compose.waitUntil(5000) { compose.onAllNodes(hasText("Done") and isEnabled()).fetchSemanticsNodes().isNotEmpty() } // Done waits for the slicer's settings
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithText("Use the model's profile").performScrollTo().assertExists()
         org.junit.Assert.assertTrue(commands.isEmpty())
@@ -1076,21 +1078,178 @@ class ScreenTest {
                 mapOf("wall_loops" to "4", "enable_support" to "1"), {}, { values, _ -> result = values })
         } } }
         compose.waitUntil(5000) { compose.onAllNodesWithText("Wall loops").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Wall loops").performClick()
+        compose.onNodeWithText("4 ").assertDoesNotExist()
+        compose.onNodeWithText("4").performClick()
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("Range: 1–20").assertExists()
         compose.onNodeWithContentDescription("Close").performClick()
-        compose.onNodeWithText("Wall loops").performClick()
+        compose.onNodeWithText("4").performClick()
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("Use profile default").performClick()
-        compose.onNodeWithText("Generate support").performClick()
-        compose.mainClock.advanceTimeBy(500)
-        compose.onNodeWithContentDescription("Close").performClick()
-        compose.onNodeWithText("Generate support").performClick()
-        compose.mainClock.advanceTimeBy(500)
-        compose.onAllNodesWithText("Profile default").onLast().performClick()
+        compose.onNodeWithText("Reset to profile").performClick()
         compose.onNodeWithText("Done").performClick()
         assertEquals(emptyMap<String, String>(), result)
+    }
+
+    private val richSchema = """{"version":1,"settings":[
+        {"group":"Quality","key":"layer_height","label":"Layer height","type":"number","unit":"mm","min":0.05,"max":0.6},
+        {"group":"Quality","key":"seam_position","label":"Seam position","type":"choice","options":[{"value":"nearest","label":"Nearest"},{"value":"back","label":"Back"}]},
+        {"group":"Quality","key":"ironing_type","label":"Ironing","type":"choice","options":[{"value":"no ironing","label":"Off"},{"value":"top","label":"Top surfaces"},{"value":"topmost","label":"Topmost surface"},{"value":"solid","label":"All solid layers"}]},
+        {"group":"Strength","key":"sparse_infill_density","label":"Infill density","type":"number","unit":"%","min":0,"max":100},
+        {"group":"Strength","key":"sparse_infill_pattern","label":"Infill pattern","type":"choice","options":[{"value":"grid","label":"Grid"},{"value":"line","label":"Rectilinear"},{"value":"triangles","label":"Triangles"},{"value":"tri-hexagon","label":"Tri-hexagon"},{"value":"honeycomb","label":"Honeycomb"},{"value":"gyroid","label":"Gyroid"},{"value":"cubic","label":"Cubic"},{"value":"adaptivecubic","label":"Adaptive cubic"},{"value":"extra","label":"Extra"}]},
+        {"group":"Support","key":"support_type","label":"Support type","type":"choice","options":[{"value":"normal(auto)","label":"Normal (automatic)"},{"value":"tree(auto)","label":"Tree (automatic)"}]},
+        {"group":"Adhesion","key":"brim_type","label":"Brim type","type":"choice","options":[{"value":"auto_brim","label":"Auto"},{"value":"no_brim","label":"None"},{"value":"outer_only","label":"Outer"},{"value":"inner_only","label":"Inner"},{"value":"outer_and_inner","label":"Outer and inner"}]},
+        {"group":"Speed","key":"travel_speed","label":"Travel","type":"number","unit":"mm/s","min":1,"max":500},
+        {"group":"Mystery","key":"mystery_speed","label":"Mystery speed","type":"number","unit":"mm/s","min":1,"max":500}]}"""
+
+    /** Draws the window so the Canvas-based previews actually run. */
+    private fun drawWindow() = compose.runOnIdle {
+        val view = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        org.junit.Assert.assertTrue(bitmap.getPixel(view.width / 2, view.height / 2) != 0)
+    }
+
+    private fun showRich(saved: Map<String, String> = emptyMap(), onDone: (Map<String, String>) -> Unit = {}) {
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { respond(richSchema) }).also { testHttpClients += it }
+        compose.setContent { CompositionLocalProvider(LocalPlatform provides platform) { AppTheme {
+            AdvancedSlicerSettings(SlicerClient("slicer.invalid", null, http = http), saved, {}, { values, _ -> onDone(values) })
+        } } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Search 9 settings").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun groupsCollapseAndExpandAndStartOpenWhereSettingsAreChanged() {
+        showRich(mapOf("sparse_infill_density" to "35"))
+        compose.onNodeWithText("1 modified · 5 settings").assertDoesNotExist()
+        compose.onNodeWithText("1 modified · 2 settings").assertExists()
+        compose.onNodeWithText("Infill density").assertExists()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Expand Quality").performClick()
+        compose.onNodeWithText("Layer height").assertExists()
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithText("1 change").assertExists()
+    }
+
+    @Test fun numbersStepInsideTheirRangeAndOpenTheKeypad() {
+        showRich(mapOf("layer_height" to "0.55"))
+        compose.onNodeWithContentDescription("Increase Layer height").performClick()
+        compose.onNodeWithText("0.6 mm").assertExists()
+        compose.onNodeWithContentDescription("Increase Layer height").performClick()
+        compose.onNodeWithText("0.6 mm").assertExists()
+        compose.onNodeWithContentDescription("Decrease Layer height").performClick()
+        compose.onNodeWithText("0.55 mm").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Range: 0.05–0.6 mm").assertExists()
+    }
+
+    @Test fun choicesUseSegmentsAndPickersAndCanBeReset() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Reset to profile").assertExists()
+        compose.onNodeWithText("Back").performClick() // tapping the chosen segment returns to the profile
+        compose.onNodeWithText("Reset to profile").assertDoesNotExist()
+        compose.onNodeWithText("Ironing").performScrollTo()
+        compose.onNodeWithText("Profile default", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Topmost surface").performClick()
+        compose.onNodeWithText("Topmost surface").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("ironing_type" to "topmost"), result)
+    }
+
+    @Test fun searchFindsSettingsAcrossGroupsAndTheModifiedFilterListsOnlyChanges() {
+        showRich(mapOf("mystery_speed" to "120"))
+        compose.onNodeWithText("Search 9 settings").assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("infill")
+        compose.onNodeWithText("2 results").assertExists()
+        compose.onNodeWithText("Infill density").assertExists()
+        compose.onAllNodesWithText("Strength").onFirst().assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("infill gyroid")
+        compose.onNodeWithText("1 result").assertExists()
+        compose.onNode(hasSetTextAction()).performTextReplacement("zzz")
+        compose.onNodeWithText("No settings match your search.").assertExists()
+        compose.onNodeWithContentDescription("Clear search").performClick()
+        compose.onNodeWithText("Modified").performClick()
+        compose.onNodeWithText("Mystery speed").assertExists()
+        compose.onNodeWithText("Layer height").assertDoesNotExist()
+        compose.onNodeWithText("Reset to profile").performClick()
+        compose.onNodeWithText("Nothing changed for this print yet.").assertExists()
+        compose.onNodeWithText("All").performClick()
+        compose.onNodeWithText("Layer height").assertExists()
+    }
+
+    @Test fun infillDensityHasPresetsAndASliderOnceSet() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithContentDescription("Expand Strength").performClick()
+        compose.onNodeWithText("Medium 20").performClick()
+        compose.onNode(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(50f) }
+        compose.onNodeWithText("50 %").assertExists()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("sparse_infill_density" to "50"), result)
+    }
+
+    @Test fun visualPickersDrawEveryPatternBrimAndSupportStyle() {
+        var result: Map<String, String>? = null
+        showRich(onDone = { result = it })
+        compose.onNodeWithContentDescription("Collapse Quality").performClick()
+        compose.onNodeWithContentDescription("Expand Strength").performClick()
+        compose.onAllNodesWithText("Profile default")[0].performClick() // the first picker in view
+        compose.mainClock.advanceTimeBy(500)
+        drawWindow()
+        compose.onNodeWithText("Gyroid").performClick()
+        compose.onNodeWithText("Gyroid").assertExists()
+        drawWindow() // the chosen pattern's icon on its row
+        listOf("Support" to "Tree (automatic)", "Adhesion" to "Inner").forEach { (group, pick) ->
+            compose.onNodeWithContentDescription("Expand $group").performScrollTo().performClick()
+            compose.onNodeWithText(if (group == "Support") "Support type" else "Brim type").performScrollTo()
+            compose.onAllNodesWithText("Profile default").onLast().performClick()
+            compose.mainClock.advanceTimeBy(500)
+            drawWindow()
+            compose.onNodeWithText(pick).performClick()
+            drawWindow()
+        }
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("sparse_infill_pattern" to "gyroid", "support_type" to "tree(auto)", "brim_type" to "inner_only"), result)
+    }
+
+    @Test fun theCurrentChoiceIsMarkedInThePickerAndCanBeClearedFromIt() {
+        var result: Map<String, String>? = null
+        showRich(mapOf("sparse_infill_pattern" to "gyroid", "ironing_type" to "top"), { result = it })
+        compose.onNodeWithText("Gyroid").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        drawWindow()
+        compose.onNodeWithText("Cubic").performClick() // a different tile than the marked one
+        compose.onNodeWithText("Cubic").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Profile default").performClick() // the sheet's own reset row
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(mapOf("ironing_type" to "top"), result)
+    }
+
+    @Test fun resultsCanBeEditedAndTheirSheetsClosed() {
+        showRich(mapOf("sparse_infill_pattern" to "gyroid"))
+        compose.onNode(hasSetTextAction()).performTextReplacement("layer height")
+        compose.onNodeWithText("Default").performClick() // opens the keypad from a search result
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("pattern")
+        compose.onNodeWithText("Gyroid").performClick() // a choice picker from a search result
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNodeWithText("Modified").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("zzz")
+        compose.onNodeWithText("No settings match your search.").assertExists()
+        compose.onNodeWithText("Reset to profile").assertDoesNotExist()
+    }
+
+    @Test fun unknownGroupsStillGetAnIconAndWork() {
+        showRich()
+        compose.onNodeWithContentDescription("Expand Mystery").performScrollTo().performClick()
+        compose.onNodeWithText("Mystery speed").assertExists()
     }
 
     @Test fun advancedSettingsHandleAConnectionFailureWithoutAReason() {
@@ -2268,7 +2427,7 @@ class ScreenTest {
         assertTrue(commands.any { it.first.endsWith("select_extruder") && it.second.contains("\"extruder_index\":0") })
     }
 
-    private fun sampleX2DPrinter(): Printer {
+    private fun sampleX2DPrinter(doorOpen: Boolean? = null): Printer {
         val extraIds = mapOf(
             "sensor.printer_name" to "sensor.printer_name",
             "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
@@ -2282,9 +2441,12 @@ class ScreenTest {
             "sensor.active_nozzle" to "sensor.active_nozzle"
         )
         val info = printer.info.copy(name = "My X2D", model = "X2D", ids = printer.info.ids + extraIds)
+        val doorSet = if (doorOpen != null) listOf("binary_sensor.door_open" to entity(if (doorOpen) "on" else "off")) else emptyList()
+        val removeList = if (doorOpen == null) listOf("binary_sensor.door_open") else emptyList()
         return variant(
             info = info,
-            set = arrayOf(
+            remove = removeList,
+            set = (listOf(
                 "sensor.printer_name" to entity("My X2D"),
                 "sensor.print_status" to entity("idle"),
                 "sensor.left_nozzle_temp" to entity("15.0"),
@@ -2300,8 +2462,116 @@ class ScreenTest {
                 "sensor.left_nozzle_type" to entity("hardened_steel"),
                 "sensor.right_nozzle_type" to entity("hardened_steel"),
                 "sensor.active_nozzle" to entity("right")
-            )
+            ) + doorSet).toTypedArray()
         )
+    }
+
+    @Test fun doorClosedDevicesScreenShowsDoorClosed() {
+        val p = sampleX2DPrinter(doorOpen = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door closed").assertExists()
+    }
+
+    @Test fun doorOpenDevicesScreenShowsDoorOpen() {
+        val p = sampleX2DPrinter(doorOpen = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door open").assertExists()
+    }
+
+    @Test fun doorOpenControlScreenShowsDoorOpen() {
+        val p = sampleX2DPrinter(doorOpen = true)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    ControlScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door open").assertExists()
+    }
+
+    @Test fun doorOpenCheckSwitchSendsSetDoorStatAndRestoresOnFailure() {
+        val entityId = "switch.pandy_testserial_door_open_check"
+        val ids = printer.info.ids + ("switch.door_open_check" to entityId)
+        val states = snapshot + (entityId to Entity(entityId, "on", JsonObject(emptyMap())))
+        val p = Printer(printer.info.copy(ids = ids), states)
+        show("Print Options") { PrintOptionsScreen(p) }
+        compose.onNodeWithText("Open Door Detection").performScrollTo().assertExists()
+
+        val before = commands.size
+        compose.onAllNodes(isToggleable()).onLast().performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.size > before }
+        val (path, text) = commands.last()
+        val body = json.parseToJsonElement(text).jsonObject
+        org.junit.Assert.assertTrue(path.endsWith("set_door_stat"))
+        assertEquals("false", body.s("enable"))
+        assertEquals("0", body.s("config"))
+
+        commandFailure = "Refused"
+        compose.onAllNodes(isToggleable()).onLast().performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); messages.contains("Refused") }
+        commandFailure = null
+    }
+
+    @Test fun doorClosedControlScreenShowsDoorClosed() {
+        val p = sampleX2DPrinter(doorOpen = false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    ControlScreen(p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Door closed").assertExists()
+    }
+
+    @Test fun doorGlyphAndChipDefaultArgumentsRenderProperly() {
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    androidx.compose.foundation.layout.Column {
+                        io.github.gccammelli.pandy.ui.DoorGlyph()
+                        io.github.gccammelli.pandy.ui.DoorGlyph(color = io.github.gccammelli.pandy.ui.C.Orange)
+                        io.github.gccammelli.pandy.ui.DoorGlyph(androidx.compose.ui.Modifier.size(20.dp), io.github.gccammelli.pandy.ui.C.Sub)
+                        io.github.gccammelli.pandy.ui.DoorChip(open = false)
+                        io.github.gccammelli.pandy.ui.DoorChip(open = true)
+                        io.github.gccammelli.pandy.ui.DoorChip(open = false, modifier = androidx.compose.ui.Modifier.size(100.dp))
+                        io.github.gccammelli.pandy.ui.DoorChip(open = true, modifier = androidx.compose.ui.Modifier.size(100.dp))
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("Door closed").onFirst().assertExists()
+        compose.onAllNodesWithText("Door open").onFirst().assertExists()
+    }
+
+    @Test fun doorOpenCheckShowsNotAvailableWhenUnavailable() {
+        val old = Repo.showUnavailable
+        Repo.setShowUnavailable(true)
+        try {
+            show("Print Options") { PrintOptionsScreen(printer) }
+            compose.onNodeWithText("Open Door Detection").performScrollTo().assertExists()
+            compose.onAllNodesWithText("Not available").onFirst().assertExists()
+        } finally {
+            Repo.setShowUnavailable(old)
+        }
     }
 
     @Test fun dualNozzleDevicesScreenShowsBothNozzles() {
