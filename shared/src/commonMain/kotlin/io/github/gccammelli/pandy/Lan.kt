@@ -749,6 +749,13 @@ class DirectPrinter(
                 else gcode("M211 S\nM211 X1 Y1 Z1\nM1002 push_ref_mode\nG91 \nG1 $axis$mm.0 F${if (axis == "Z") 900 else 3000}\nM1002 pop_ref_mode\nM211 R\n")
             }
             "bambu_lab/extrude_retract" -> gcode("M83 \nG0 E${if (d.s("type") == "Retract") -10 else 10}.0 F900\n")
+            "bambu_lab/select_extruder" -> {
+                val idx = d.s("extruder_index")?.toIntOrNull() ?: 0
+                publish(printCmd("select_extruder") {
+                    JsonObject(this + ("extruder_index" to JsonPrimitive(idx)))
+                })
+            }
+            "bambu_lab/send_command" -> gcode(d.s("command").orEmpty())
             "bambu_lab/unload_filament" -> publish(printCmd("ams_change_filament") {
                 JsonObject(this + mapOf("ams_id" to JsonPrimitive(255), "slot_id" to JsonPrimitive(255), "target" to JsonPrimitive(255),
                     "curr_temp" to JsonPrimitive(0), "tar_temp" to JsonPrimitive(0)))

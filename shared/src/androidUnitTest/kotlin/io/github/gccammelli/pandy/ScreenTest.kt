@@ -2020,13 +2020,10 @@ class ScreenTest {
 
     @Test fun heaterIndicatorsRespectTheTwoDegreeDeadBandAndMissingTargets() {
         val value=androidx.compose.runtime.mutableStateOf<Pair<Double?,Double?>>(25.0 to 100.0)
-        var color: androidx.compose.ui.graphics.Color?=null
         show("Temperature") {
             androidx.compose.foundation.layout.Column {
                 T("Temperature")
                 TempText(value.value.first,value.value.second,24.sp,12.sp)
-                val next=tempColor(value.value.first,value.value.second)
-                androidx.compose.runtime.SideEffect { color=next }
             }
         }
         for((now,target,arrow) in listOf(
@@ -2037,7 +2034,7 @@ class ScreenTest {
             for(mark in listOf("↑","↓")) if(mark==arrow) compose.onNodeWithText(mark,substring=false).assertExists()
                 else compose.onNodeWithText(mark,substring=false).assertDoesNotExist()
             if(now==null) compose.onNodeWithText("--",substring=false).assertExists()
-            assertEquals(when(arrow) { "↑" -> C.Orange; "↓" -> C.Blue; else -> C.Text },color)
+            assertEquals(when(arrow) { "↑" -> C.Orange; "↓" -> C.Blue; else -> C.Text }, tempColor(now, target))
         }
     }
 
@@ -2292,6 +2289,191 @@ class ScreenTest {
         compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("0.4mm Stainless steel", substring = true).assertExists()
         compose.onNodeWithText("45°C").assertExists()
+        compose.onNodeWithText("Switching Extruder...").assertExists()
+        assertTrue(commands.any { it.first.endsWith("select_extruder") && it.second.contains("\"extruder_index\":1") })
+    }
+
+    @Test fun dualNozzleExtrudeAndRetractTargetSelectedToolhead() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.left_target_nozzle_temp" to "sensor.left_target_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.right_target_nozzle_temp" to "sensor.right_target_nozzle_temp",
+            "sensor.left_nozzle_diameter" to "sensor.left_nozzle_diameter",
+            "sensor.right_nozzle_diameter" to "sensor.right_nozzle_diameter",
+            "sensor.left_nozzle_type" to "sensor.left_nozzle_type",
+            "sensor.right_nozzle_type" to "sensor.right_nozzle_type",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.left_target_nozzle_temp" to entity("210"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.right_target_nozzle_temp" to entity("215"),
+                "sensor.left_nozzle_diameter" to entity("0.4"),
+                "sensor.right_nozzle_diameter" to entity("0.4"),
+                "sensor.left_nozzle_type" to entity("stainless_steel"),
+                "sensor.right_nozzle_type" to entity("hardened_steel"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        // When right nozzle is selected and active, no switching banner and extrude sends extrude_retract
+        compose.onNodeWithText("Switching Extruder...").assertDoesNotExist()
+        val arrows = compose.onAllNodes(hasClickAction() and !hasText("", substring = true) and !hasContentDescription("Close") and !hasContentDescription("Back") and !hasContentDescription("Close sheet") and !isToggleable())
+        // Retract
+        arrows[0].performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.any { it.first.endsWith("extrude_retract") } }
+        val lastRetract = json.parseToJsonElement(commands.last { it.first.endsWith("extrude_retract") }.second).jsonObject
+        assertEquals("Retract", lastRetract.s("type"))
+
+        // Extrude
+        arrows[1].performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.count { it.first.endsWith("extrude_retract") } >= 2 }
+        val lastExtrude = json.parseToJsonElement(commands.last { it.first.endsWith("extrude_retract") }.second).jsonObject
+        assertEquals("Extrude", lastExtrude.s("type"))
+    }
+
+    @Test fun dualNozzleExtrudeButtonsDisabledWhileSwitchingToolhead() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        val arrows = compose.onAllNodes(hasClickAction() and !hasText("", substring = true) and !hasContentDescription("Close") and !hasContentDescription("Back") and !hasContentDescription("Close sheet") and !isToggleable())
+        // Initially right is active and temp >= 170 -> arrows enabled
+        arrows[0].assertIsEnabled()
+        arrows[1].assertIsEnabled()
+
+        // Switch to left -> isSwitching becomes true -> buttons disabled, banner appears
+        compose.onNodeWithText("Left Nozzle (L)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Switching Extruder...").assertExists()
+        arrows[0].assertIsNotEnabled()
+        arrows[1].assertIsNotEnabled()
+    }
+
+    @Test fun dualNozzleNoExtruderSwitchDispatchedWhilePrinting() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("running"),
+                "sensor.stage" to entity("printing"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.active_nozzle" to entity("right")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        val beforeCount = commands.size
+        // Clicking tabs switches inspection view only, does NOT send select_extruder
+        compose.onNodeWithText("Left Nozzle (L)").performClick()
+        compose.onNodeWithText("Right Nozzle (R)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        assertEquals(beforeCount, commands.size)
+        compose.onNodeWithText("Switching Extruder...").assertDoesNotExist()
+        compose.onNodeWithText("Extrusion is unavailable while printing.").assertExists()
+    }
+
+    @Test fun dualNozzleWithUnrecognizedActiveToolheadCannotExtrude() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val p = variant(
+            info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds),
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("170"),
+                "sensor.right_nozzle_temp" to entity("170"),
+                "sensor.active_nozzle" to entity("unrecognized")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.onAllNodes(hasClickAction() and !isEnabled()).assertCountEquals(2)
+        assertTrue(commands.none { it.first.endsWith("extrude_retract") })
+    }
+
+    @Test fun dualNozzleDoesNotSwitchFromLeftToRightWhilePrinting() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val p = variant(
+            info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds),
+            set = arrayOf(
+                "sensor.print_status" to entity("running"),
+                "sensor.stage" to entity("printing"),
+                "sensor.left_nozzle_temp" to entity("210"),
+                "sensor.right_nozzle_temp" to entity("215"),
+                "sensor.active_nozzle" to entity("left")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.onNodeWithText("Right Nozzle (R)").performClick()
+        compose.onNodeWithText("Extrusion is unavailable while printing.").assertExists()
+        assertTrue(commands.none { it.first.endsWith("select_extruder") })
+    }
+
+    @Test fun dualNozzleSwitchingFromLeftToRightDispatchesSelectExtruder0() {
+        val extraIds = mapOf(
+            "sensor.left_nozzle_temp" to "sensor.left_nozzle_temp",
+            "sensor.right_nozzle_temp" to "sensor.right_nozzle_temp",
+            "sensor.active_nozzle" to "sensor.active_nozzle"
+        )
+        val info = printer.info.copy(model = "X2D", ids = printer.info.ids + extraIds)
+        val p = variant(
+            info = info,
+            set = arrayOf(
+                "sensor.print_status" to entity("idle"),
+                "sensor.left_nozzle_temp" to entity("210.0"),
+                "sensor.right_nozzle_temp" to entity("215.0"),
+                "sensor.active_nozzle" to entity("left")
+            )
+        )
+        show("Device Control") { ControlScreen(p) }
+        compose.onNodeWithText("Nozzle & Extruder").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(500)
+
+        // Active nozzle is left, clicking right sends select_extruder with extruder_index 0
+        compose.onNodeWithText("Right Nozzle (R)").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText("Switching Extruder...").assertExists()
+        assertTrue(commands.any { it.first.endsWith("select_extruder") && it.second.contains("\"extruder_index\":0") })
     }
 
     private fun sampleX2DPrinter(doorOpen: Boolean? = null): Printer {
@@ -2638,8 +2820,8 @@ class ScreenTest {
 
     private fun variant(info: PrinterInfo = printer.info, remove: List<String> = emptyList(), vararg set: Pair<String,Entity>): Printer {
         val states=snapshot.toMutableMap()
-        for(key in remove) states.remove(printer.info.ids[key] ?: key)
-        for((key,entity) in set) { val id=printer.info.ids[key] ?: key; states[id]=Entity(id,entity.state,entity.attrs) }
+        for(key in remove) states.remove(info.ids[key] ?: printer.info.ids[key] ?: key)
+        for((key,entity) in set) { val id=info.ids[key] ?: printer.info.ids[key] ?: key; states[id]=Entity(id,entity.state,entity.attrs) }
         return Printer(info,states)
     }
     private fun entity(state: String, attrs: Map<String,Any> = emptyMap()) = Entity("",state,JsonObject(attrs.mapValues { (_,v) -> v as? JsonElement ?: JsonPrimitive(v.toString()) }))

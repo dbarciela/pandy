@@ -99,7 +99,7 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
         add("sensor", "printer_name", "Demo X1C")
         add("sensor", "print_weight", 38.4); add("sensor", "print_length", 12.7)
         add("sensor", "print_bed_type", "textured_plate")
-        add("sensor", "nozzle_diameter", 0.4); add("sensor", "nozzle_type", "hardened_steel")
+        add("sensor", "nozzle_diameter", 0.4); add("sensor", "nozzle_type", "hardened_steel"); add("sensor", "active_nozzle", "right")
         add("sensor", "printable_objects", 3, buildJsonObject { putJsonObject("objects") { put("101", "Panda body"); put("102", "Panda head"); put("103", "Bamboo stick") } })
         add("sensor", "skipped_objects", 0, buildJsonObject { putJsonArray("objects") {} })
         add("sensor", "wifi_signal", -52)
@@ -316,6 +316,10 @@ class FakeHomeAssistant : HaBackend, PrinterFiles {
                     .forEach { (key, field) -> rows.firstOrNull { it.device == amsDev && it.key == key }?.let { setById(id(it), if (d.s(field) == "true") "on" else "off") } }
             }
             "switch/turn_on", "switch/turn_off" -> setById(target!!, if (service.endsWith("on")) "on" else "off")
+            "bambu_lab/select_extruder" -> {
+                val nozzle = if (d.s("extruder_index") == "1") "left" else "right"
+                setById(id(rows.first { it.key == "active_nozzle" }), nozzle) // the demo printer always has one (see the sensor list above)
+            }
             else -> {} // move_axis, extrude_retract, load/unload: nothing to show in the demo
         }
         delay(150)

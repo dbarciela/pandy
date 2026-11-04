@@ -1,5 +1,6 @@
 package io.github.gccammelli.pandy
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -389,6 +390,20 @@ fun Printer.extrude(extrude: Boolean, err: (String) -> Unit) = Repo.act(err) {
     bambu("extrude_retract", this@extrude, buildJsonObject { put("type", if (extrude) "Extrude" else "Retract"); put("force", false) })
 }
 
+/** [nozzle] "left" or "right" switches the active toolhead on dual-nozzle printers. */
+fun Printer.selectExtruder(nozzle: String, err: (String) -> Unit) = Repo.act(err) {
+    val idx = if (nozzle == "left") 1 else 0
+    try {
+        bambu("select_extruder", this@selectExtruder, buildJsonObject { put("extruder_index", idx) })
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: ApiException) {
+        // A toolhead change moves the carriage: send the raw T0/T1 only when the service is known not to exist, never after a timeout or other failure.
+        if (!e.isUnsupportedService()) throw e
+        bambu("send_command", this@selectExtruder, buildJsonObject { put("command", if (idx == 1) "T1\n" else "T0\n") })
+    }
+}
+
 fun Printer.skip(ids: List<Int>, err: (String) -> Unit) = Repo.act(err) {
     bambu("skip_objects", this@skip, buildJsonObject { put("objects", ids.joinToString(",")) })
 }
@@ -405,4 +420,10 @@ fun Printer.load(s: Spool, err: (String) -> Unit) = Repo.act(err) {
 
 fun Printer.toggleCamera(on: Boolean, err: (String) -> Unit) = Repo.act(err) {
     call("switch", if (on) "turn_on" else "turn_off", buildJsonObject { put("entity_id", info.ids["switch.camera"] ?: return@act) })
+}
+
+/** True when Home Assistant (or the direct backend) says the service itself does not exist, as opposed to the call failing. */
+internal fun ApiException.isUnsupportedService(): Boolean {
+    val m = toString().lowercase() // "ApiException: <message>": the class name carries none of these phrases
+    return "not found" in m || "unknown service" in m || "needs home assistant" in m
 }
