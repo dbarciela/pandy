@@ -75,11 +75,17 @@ class NotificationActionReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 var error: String? = null
-                val reached = withTimeoutOrNull(ACTION_TIMEOUT_MS) {
+                val known = withTimeoutOrNull(ACTION_TIMEOUT_MS) {
                     Repo.state.first { st -> st.printers?.any { it.serial == serial } == true }
-                    Repo.actPrinter(serial, action) { error = it }?.join()
                 } != null
-                val failure = if (!reached) "Pandy could not reach the printer" else error
+                val job = if (known) Repo.actPrinter(serial, action) { error = it } else null
+                // The command keeps running if we stop waiting, so a slow answer is not reported as a failure.
+                val finished = job != null && withTimeoutOrNull(ACTION_TIMEOUT_MS) { job.join() } != null
+                val failure = when {
+                    job == null -> "Pandy could not reach the printer"
+                    !finished -> "The printer did not confirm in time"
+                    else -> error
+                }
                 if (failure == null) {
                     // Stop dismisses the alert only once the printer accepted it.
                     if (action == "stop" && notifId != -1) app.getSystemService(NotificationManager::class.java).cancel(notifId)
