@@ -48,10 +48,12 @@ class DirectPrinterTest {
             assertEquals("set_door_stat", sent3.s("command"))
             assertEquals("0", sent3.s("config"))
 
-            direct.command("bambu_lab/set_door_stat", "config" to "invalid")
-            val sent4 = link.sent.last().o("system")!!
-            assertEquals("set_door_stat", sent4.s("command"))
-            assertEquals("0", sent4.s("config"))
+            val before = link.sent.size
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat", "config" to "invalid") }
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat", "config" to "2") }
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat", "enable" to "maybe") }
+            assertFailsWith<ApiException> { direct.command("bambu_lab/set_door_stat") }
+            assertEquals(before, link.sent.size)
         } finally {
             direct.stop()
         }

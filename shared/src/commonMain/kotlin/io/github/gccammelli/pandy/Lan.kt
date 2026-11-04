@@ -756,7 +756,12 @@ class DirectPrinter(
                 val enabled = d[option].flagValue() ?: throw ApiException("Invalid print option")
                 publish(printOptionCommand(nextSeq(), option, enabled))
             }
-            "bambu_lab/set_door_stat" -> publish(doorStatCommand(nextSeq(), (d.s("config")?.toIntOrNull() ?: if (d.s("enable") == "true") 1 else 0).coerceIn(0, 1)))
+            "bambu_lab/set_door_stat" -> {
+                // This changes a safety setting, so a missing or malformed value must not default to "off".
+                val config = d.s("config")?.let { it.toIntOrNull()?.takeIf { v -> v in 0..1 } ?: throw ApiException("Invalid door check value") }
+                    ?: (d["enable"].flagValue() ?: throw ApiException("Invalid door check value")).let { if (it) 1 else 0 }
+                publish(doorStatCommand(nextSeq(), config))
+            }
             "bambu_lab/ams_user_setting" -> publish(amsUserSettingCommand(nextSeq(), d.s("ams_id")?.toIntOrNull() ?: 0,
                 d.s("startup_read_option") == "true", d.s("tray_read_option") == "true", d.s("calibrate_remain_flag") == "true"))
             "switch/turn_on", "switch/turn_off" -> {} // live view is always available directly
