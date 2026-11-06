@@ -186,7 +186,37 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     add("switch", "camera", "on")
     // These are reported only by firmware that supports the corresponding XCam/print option.
     val xcam = p.o("xcam") ?: r.o("xcam")
-    listOf("printing_monitor", "buildplate_marker_detector", "first_layer_inspector", "spaghetti_detector", "pileup_detector", "air_print_detector", "clump_detector")
+    val pm = xcam?.flag("printing_monitor") ?: xcam?.flag("spaghetti_detector") ?: p.hexBit("cfg", 15)
+    pm?.let { enabled ->
+        val printHalt = xcam?.flag("printing_monitor_print_halt") ?: xcam?.o("printing_monitor")?.flag("print_halt") ?: xcam?.flag("print_halt") ?: (p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 13) and 3L) != 0L })
+        add("switch", "printing_monitor", if (enabled) "on" else "off", buildJsonObject {
+            printHalt?.let { put("print_halt", it) }
+        })
+    }
+    val bpm = xcam?.flag("buildplate_marker_detector")
+    bpm?.let { enabled ->
+        val printHalt = xcam?.flag("buildplate_marker_detector_print_halt") ?: xcam?.o("buildplate_marker_detector")?.flag("print_halt") ?: xcam?.flag("print_halt")
+        add("switch", "buildplate_marker_detector", if (enabled) "on" else "off", buildJsonObject {
+            printHalt?.let { put("print_halt", it) }
+        })
+    }
+    val fli = xcam?.flag("first_layer_inspector") ?: p.hexBit("cfg", 12)
+    fli?.let { enabled ->
+        val printHalt = xcam?.flag("first_layer_inspector_print_halt") ?: xcam?.o("first_layer_inspector")?.flag("print_halt") ?: xcam?.flag("print_halt")
+        add("switch", "first_layer_inspector", if (enabled) "on" else "off", buildJsonObject {
+            printHalt?.let { put("print_halt", it) }
+        })
+    }
+    (xcam?.flag("plate_offset_switch") ?: xcam?.flag("buildplate_align_detector") ?: xcam?.bit("cfg", 20))?.let {
+        add("switch", "plate_offset_switch", if (it) "on" else "off")
+    }
+    (xcam?.flag("fod_check") ?: xcam?.bit("cfg", 21))?.let {
+        add("switch", "fod_check", if (it) "on" else "off")
+    }
+    (xcam?.flag("model_movement_check") ?: xcam?.flag("displacement_detector") ?: xcam?.bit("cfg", 22))?.let {
+        add("switch", "model_movement_check", if (it) "on" else "off")
+    }
+    listOf("spaghetti_detector", "pileup_detector", "air_print_detector", "clump_detector")
         .forEach { module ->
             xcam?.flag(module)?.let { enabled ->
                 val printHalt = xcam.flag("${module}_print_halt") ?: xcam.o(module)?.flag("print_halt") ?: xcam.flag("print_halt")
@@ -199,6 +229,18 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
     // Legacy firmware puts these values in home_flag; newer firmware mirrors them in the hex cfg bitmap.
     (printOptions?.flag("auto_recovery") ?: p.flag("auto_recovery") ?: p.bit("home_flag", 4) ?: p.hexBit("cfg", 16))?.let { add("switch", "auto_recovery", if (it) "on" else "off") }
     (printOptions?.flag("auto_switch_filament") ?: p.flag("auto_switch_filament") ?: p.bit("home_flag", 10) ?: p.hexBit("cfg", 18))?.let { add("switch", "auto_switch_filament", if (it) "on" else "off") }
+    val supportTangle = (printOptions?.get("filament_tangle_detect") != null) || (p.bit("home_flag", 19) == true) || (p.hexBit("fun", 9) == true)
+    if (supportTangle) {
+        val tangle = printOptions?.flag("filament_tangle_detect") ?: p.flag("filament_tangle_detect") ?: p.hexBit("cfg", 23) ?: p.bit("home_flag", 20)
+        tangle?.let { add("switch", "filament_tangle_detect", if (it) "on" else "off") }
+    }
+    (printOptions?.flag("sound_enable") ?: printOptions?.flag("prompt_sound") ?: p.flag("prompt_sound") ?: p.hexBit("cfg", 22) ?: p.bit("home_flag", 17))?.let { add("switch", "prompt_sound", if (it) "on" else "off") }
+    val supportBlob = (printOptions?.get("nozzle_blob_detect") != null) || (p.bit("home_flag", 25) == true) || (p.hexBit("fun2", 15) == true) || (p.hexBit("fun", 13) == true)
+    if (supportBlob) {
+        val blob = printOptions?.flag("nozzle_blob_detect") ?: p.bit("home_flag", 24) ?: (p.hexBit("cfg", 43)?.let { it || (p.hexBit("cfg", 44) == true) })
+        blob?.let { add("switch", "nozzle_blob_detect", if (it) "on" else "off") }
+    }
+    p.hexBit("cfg", 19)?.let { add("switch", "print_cache", if (it) "on" else "off") }
     if (c.model !in listOf("A1", "A1 mini", "P1P")) {
         (p.flag("door_open_check") ?: (p.str("cfg")?.toLongOrNull(16)?.let { ((it shr 20) and 3L) != 0L }) ?: p.bit("home_flag", 26))?.let { add("switch", "door_open_check", if (it) "on" else "off") }
         // Only home_flag bit 23 follows the door: on a real X1C `stat` bit 23 stays set whether the door is open or closed.
@@ -389,6 +431,11 @@ fun xcamCommand(sequenceId: String, module: String, enabled: Boolean, printHalt:
 fun printOptionCommand(sequenceId: String, option: String, enabled: Boolean) = printCommand(sequenceId, "print_option", buildJsonObject {
     put(option, enabled)
     if (option == "auto_recovery") put("option", if (enabled) 1 else 0)
+    if (option == "nozzle_blob_detect") put("nozzle_blob_detect_v2", if (enabled) 1 else 0)
+})
+
+fun printCacheCommand(sequenceId: String, enable: Boolean) = systemCommand(sequenceId, "print_cache_set", buildJsonObject {
+    put("config", enable)
 })
 
 fun systemCommand(sequenceId: String, command: String, fields: JsonObject = JsonObject(emptyMap())) = buildJsonObject {
@@ -798,11 +845,13 @@ class DirectPrinter(
             "bambu_lab/calibration" -> publish(calibrationCommand(nextSeq(), d.s("option")?.toIntOrNull() ?: 0))
             "bambu_lab/xcam_control_set" -> publish(xcamCommand(nextSeq(), d.s("module_name").orEmpty(), d.s("enable") == "true", d.s("print_halt") == "true"))
             "bambu_lab/print_option" -> {
-                val option = listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable")
+                val option = listOf("auto_recovery", "auto_switch_filament", "filament_tangle_detect", "nozzle_blob_detect", "air_print_detect", "sound_enable", "prompt_sound")
                     .firstOrNull { d[it] != null } ?: throw ApiException("No print option")
                 val enabled = d[option].flagValue() ?: throw ApiException("Invalid print option")
-                publish(printOptionCommand(nextSeq(), option, enabled))
+                val mapped = if (option == "prompt_sound") "sound_enable" else option
+                publish(printOptionCommand(nextSeq(), mapped, enabled))
             }
+            "bambu_lab/print_cache_set" -> publish(printCacheCommand(nextSeq(), d.s("config")?.toBooleanStrictOrNull() ?: (d.s("enable") == "true")))
             "bambu_lab/set_door_stat" -> {
                 // This changes a safety setting, so a missing or malformed value must not default to "off".
                 val config = d.s("config")?.let { it.toIntOrNull()?.takeIf { v -> v in 0..1 } ?: throw ApiException("Invalid door check value") }
