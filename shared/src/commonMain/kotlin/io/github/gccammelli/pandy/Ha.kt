@@ -471,6 +471,7 @@ fun Printer.setPrintOption(option: String, enabled: Boolean, err: (String) -> Un
     bambu("print_option", this@setPrintOption, buildJsonObject {
         put(option, enabled)
         if (option == "auto_recovery") put("option", if (enabled) 1 else 0)
+        if (option == "nozzle_blob_detect") put("nozzle_blob_detect_v2", if (enabled) 1 else 0)
     })
 }
 
@@ -478,6 +479,13 @@ fun Printer.setPrintOption(option: String, enabled: Boolean, err: (String) -> Un
 fun Printer.setDoorCheck(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
     bambu("set_door_stat", this@setDoorCheck, buildJsonObject {
         put("enable", enabled); put("config", if (enabled) 1 else 0)
+    })
+}
+
+/** Toggles caching remote print files to internal/SD storage. */
+fun Printer.setPrintCache(enabled: Boolean, err: (String) -> Unit) = Repo.act(err) {
+    bambu("print_cache_set", this@setPrintCache, buildJsonObject {
+        put("enable", enabled); put("config", enabled)
     })
 }
 

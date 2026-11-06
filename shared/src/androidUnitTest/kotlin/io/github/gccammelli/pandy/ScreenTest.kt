@@ -2151,6 +2151,50 @@ class ScreenTest {
         }
     }
 
+    @Test fun x2dPrintOptionsScreenShowsModernAiModulesAndTogglesOptions() {
+        val extraKeys = listOf("plate_offset_switch", "fod_check", "model_movement_check", "filament_tangle_detect", "nozzle_blob_detect", "prompt_sound", "door_open_check", "print_cache")
+        val ids = printer.info.ids.toMutableMap()
+        val states = snapshot.toMutableMap()
+        extraKeys.forEach { key ->
+            val entityId = "switch.pandy_testserial_$key"
+            ids["switch.$key"] = entityId
+            states[entityId] = Entity(entityId, "on", JsonObject(emptyMap()))
+        }
+        val doorId = "binary_sensor.pandy_testserial_door_open"
+        ids["binary_sensor.door_open"] = doorId
+        states[doorId] = Entity(doorId, "on", JsonObject(emptyMap()))
+
+        val p = Printer(printer.info.copy(ids = ids), states)
+        show("Print Options") { PrintOptionsScreen(p) }
+
+        compose.onNodeWithText("Build Plate Alignment").performScrollTo().assertExists()
+        compose.onNodeWithText("Foreign Object Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Model Movement Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Filament Tangle Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Nozzle Clumping Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Prompt Tones").performScrollTo().assertExists()
+        compose.onNodeWithText("Open Door Detection").performScrollTo().assertExists()
+        compose.onNodeWithText("Store Sent Files on External Storage").performScrollTo().assertExists()
+
+        // Toggling door_open_check sends set_door_stat
+        val before = commands.size
+        compose.onAllNodes(isToggleable())[10].performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.size > before }
+        val (path, text) = commands.last()
+        val body = json.parseToJsonElement(text).jsonObject
+        org.junit.Assert.assertTrue(path.endsWith("set_door_stat"))
+        assertEquals("false", body.s("enable"))
+
+        // Toggling print_cache sends print_cache_set
+        val before2 = commands.size
+        compose.onAllNodes(isToggleable())[11].performScrollTo().performClick()
+        compose.waitUntil(5000) { compose.waitForIdle(); commands.size > before2 }
+        val (path2, text2) = commands.last()
+        val body2 = json.parseToJsonElement(text2).jsonObject
+        org.junit.Assert.assertTrue(path2.endsWith("print_cache_set"))
+        assertEquals("false", body2.s("enable"))
+    }
+
     @Test fun amsReadPreferencesSendAllThreeFlagsAndRestoreRejectedChanges() {
         val ams=printer.info.ams.first()
         val keys=listOf("ams_read_on_insertion","ams_read_on_startup","ams_remaining_estimation")
