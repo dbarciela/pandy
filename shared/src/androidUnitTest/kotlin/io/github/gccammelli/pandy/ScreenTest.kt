@@ -1872,6 +1872,29 @@ class ScreenTest {
         assertEquals(listOf(65,0),set)
     }
 
+    @Test fun temperatureEntrySteppersIncrementAndDecrementInFiveDegreeSteps() {
+        val set=mutableListOf<Int>(); var closed=0
+        show("Temperature") { TempSheet("Temperature","Test heater",listOf(0,40),215.0,0..300,{closed++}) { set+=it } }
+        compose.onNodeWithContentDescription("Increase temperature").performClick()
+        compose.onNodeWithContentDescription("Decrease temperature").performClick()
+        compose.onNodeWithContentDescription("Decrease temperature").performClick()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(listOf(210),set)
+        assertEquals(1,closed)
+    }
+
+    @Test fun temperatureEntrySteppersClampToRangeLimits() {
+        val set=mutableListOf<Int>()
+        show("Temperature") { TempSheet("Temperature","Test heater",listOf(0,40),0.0,0..50,{}) { set+=it } }
+        compose.onNodeWithContentDescription("Decrease temperature").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Increase temperature").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("48")
+        compose.onNodeWithContentDescription("Increase temperature").performClick()
+        compose.onNodeWithContentDescription("Increase temperature").assertIsNotEnabled()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(listOf(50),set)
+    }
+
     @Test fun heatedChamberUsesItsOwnTarget() {
         val id="number.chamber_target"
         val info=printer.info.copy(ids=printer.info.ids+("number.target_chamber_temperature" to id))
