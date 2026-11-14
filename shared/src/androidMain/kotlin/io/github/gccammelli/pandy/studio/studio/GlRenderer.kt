@@ -135,12 +135,28 @@ class GlRenderer(private val camera: OrbitCamera) : GLSurfaceView.Renderer {
             val edge = floatArrayOf(.68f, 0f, .43f, 1f)
             fun put(x: Float, y: Float, z: Float, c: FloatArray) { v += x; v += y; v += z; v += c[0]; v += c[1]; v += c[2]; v += c[3] }
             val x0 = b.originX; val y0 = b.originY; val x1 = x0 + b.width; val y1 = y0 + b.depth
+            var tris = 0
+            // The printer's own plate (rounded corners, handle), a shade darker, just under the printable area.
+            b.plate?.let { m ->
+                val rim = if (f.dark) floatArrayOf(.13f, .13f, .14f, 1f) else floatArrayOf(.72f, .72f, .74f, 1f)
+                for (i in m.indices) put(m.positions[i * 3], m.positions[i * 3 + 1], minOf(m.positions[i * 3 + 2], 0f) - 0.12f, rim)
+                tris += m.indices.size
+            }
             listOf(x0 to y0, x1 to y0, x1 to y1, x0 to y0, x1 to y1, x0 to y1).forEach { (x, y) -> put(x, y, -0.05f, plate) }
-            bedTris = 6
+            tris += 6
+            // The no-go zone, shaded (objects on it turn red like ones off the plate).
+            val zone = b.exclude
+            if (zone.size >= 3) {
+                val shade = if (f.dark) floatArrayOf(.32f, .16f, .18f, 1f) else floatArrayOf(.93f, .78f, .8f, 1f)
+                for (i in 1 until zone.size - 1) listOf(zone[0], zone[i], zone[i + 1]).forEach { (x, y) -> put(x, y, 0.01f, shade) }
+                tris += (zone.size - 2) * 3
+            }
+            bedTris = tris
             var n = 0
             var gx = x0 + 10f; while (gx < x1) { put(gx, y0, 0f, grid); put(gx, y1, 0f, grid); n += 2; gx += 10f }
             var gy = y0 + 10f; while (gy < y1) { put(x0, gy, 0f, grid); put(x1, gy, 0f, grid); n += 2; gy += 10f }
             listOf(x0 to y0, x1 to y0, x1 to y0, x1 to y1, x1 to y1, x0 to y1, x0 to y1, x0 to y0).forEach { (x, y) -> put(x, y, 0.02f, edge); n++ }
+            if (zone.size >= 3) zone.indices.forEach { i -> listOf(zone[i], zone[(i + 1) % zone.size]).forEach { (x, y) -> put(x, y, 0.03f, edge); n++ } }
             bedLines = n
             bedVbo = buffer(v.toFloatArray()); bedFor = f.bed to f.dark
         }

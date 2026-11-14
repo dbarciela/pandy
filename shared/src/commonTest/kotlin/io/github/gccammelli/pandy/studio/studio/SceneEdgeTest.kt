@@ -21,9 +21,25 @@ class SceneEdgeTest {
 
     @Test fun bedFallsBackToTheDefaultForMissingOrBrokenPoints() {
         assertEquals(Bed(), Bed.of(null, null))
-        assertEquals(Bed(), Bed.of(listOf("garbage", "1x2x3", "ax5", "5xb"), "100"))
+        // A printer with a height but no usable area keeps its height (it used to fall back to 256 mm).
+        assertEquals(Bed(height = 100f), Bed.of(listOf("garbage", "1x2x3", "ax5", "5xb"), "100"))
         assertEquals(256f, Bed.of(listOf("0x0", "50x40"), "tall").height)
         assertEquals(Bed(0f, 0f, 50f, 40f, 256f), Bed.of(listOf("0x0", "50x40", "bad"), null))
+    }
+
+    @Test fun anObjectOnTheNoGoZoneCountsAsOffThePlate() {
+        val scene = Scene()
+        scene.bed = Bed.of(listOf("0x0", "256x0", "256x256", "0x256"), "250", listOf("0x0", "18x0", "18x28", "0x28"))
+        assertEquals(listOf(0f to 0f, 18f to 0f, 18f to 28f, 0f to 28f), scene.bed.exclude)
+        val o = obj(scene, 10f, 10f)
+        o.x = 10f; o.y = 10f // inside the 18 x 28 mm corner
+        assertEquals(listOf(o), scene.outside())
+        o.x = 24f; o.y = 10f // just right of it
+        assertTrue(scene.outside().isEmpty())
+        o.x = 10f; o.y = 34f // just behind it
+        assertTrue(scene.outside().isEmpty())
+        assertTrue(Bed.of(null, null, listOf("0x0", "bad")).exclude.isEmpty()) // fewer than three points: no zone
+        assertEquals(scene.bed.copy(plate = null), scene.bed.area)
     }
 
     @Test fun removingTheSelectedObjectClearsTheSelectionButAnotherLeavesIt() {

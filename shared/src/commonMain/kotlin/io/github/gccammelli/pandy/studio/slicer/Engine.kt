@@ -11,6 +11,8 @@ data class EngineChoice(val id: String, val name: String, val version: String)
 interface StudioEngine {
     suspend fun profiles(): ProfileSource
     suspend fun slice(job: SliceJob, onLog: (String) -> Unit): SliceRun
+    /** A printer's plate model ("bed_model" of its machine model, e.g. "bbl-3dp-X1.stl"), as the engine's resources carry it. */
+    suspend fun plateModel(file: String): ByteArray? = null
 }
 
 /** A finished engine run, platform-neutral: what it reported, the sliced 3MF's bytes and the time it took. */

@@ -34,7 +34,7 @@ private class PlateView(context: Context, val scene: Scene) : GLSurfaceView(cont
 
     /** Copies the scene for the GL thread and redraws. */
     fun push() {
-        if (framedFor != scene.bed) { camera.frame(scene.bed); framedFor = scene.bed }
+        if (framedFor != scene.bed.area) { camera.frame(scene.bed); framedFor = scene.bed.area }
         val objs = scene.objects.toList()
         val out = scene.outside().map { o -> objs.indexOf(o) }.toSet()
         renderer.frame = Frame(

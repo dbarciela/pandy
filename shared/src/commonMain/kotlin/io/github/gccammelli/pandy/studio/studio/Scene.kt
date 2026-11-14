@@ -14,18 +14,35 @@ import io.github.gccammelli.pandy.studio.model.Mat4
 import io.github.gccammelli.pandy.studio.model.Mesh
 import io.github.gccammelli.pandy.studio.model.Vec3
 
-/** The printable area: a rectangle from (originX, originY), as Bambu presets give it ("printable_area"). */
-data class Bed(val originX: Float = 0f, val originY: Float = 0f, val width: Float = 256f, val depth: Float = 256f, val height: Float = 256f) {
+/**
+ * The printable area: a rectangle from (originX, originY), as Bambu presets give it ("printable_area"). [exclude] is the
+ * corner nothing may be placed on ("bed_exclude_area", e.g. the X1's 18 x 28 mm cutter zone); [plate] the printer's own
+ * plate model, in bed coordinates, when the slicer plugin has one.
+ */
+data class Bed(
+    val originX: Float = 0f, val originY: Float = 0f, val width: Float = 256f, val depth: Float = 256f, val height: Float = 256f,
+    val exclude: List<Pair<Float, Float>> = emptyList(), val plate: io.github.gccammelli.pandy.studio.model.Mesh? = null,
+) {
     val centerX get() = originX + width / 2
     val centerY get() = originY + depth / 2
+    /** The same printable volume, whatever plate model is drawn (the camera frames this). */
+    val area get() = copy(plate = null)
+    /** Whether the rectangle from (x0, y0) to (x1, y1) overlaps the no-go zone. */
+    fun excludes(x0: Float, y0: Float, x1: Float, y1: Float): Boolean {
+        if (exclude.size < 3) return false
+        val ex0 = exclude.minOf { it.first }; val ey0 = exclude.minOf { it.second }; val ex1 = exclude.maxOf { it.first }; val ey1 = exclude.maxOf { it.second }
+        return x0 < ex1 - 0.01f && x1 > ex0 + 0.01f && y0 < ey1 - 0.01f && y1 > ey0 + 0.01f
+    }
 
     companion object {
-        /** From a printer preset's printable_area ("0x0", "256x0", "256x256", "0x256") and printable_height. */
-        fun of(area: List<String>?, height: String?): Bed {
-            val pts = area.orEmpty().mapNotNull { p -> p.split('x').takeIf { it.size == 2 }?.let { (a, b) -> a.toFloatOrNull()?.let { x -> b.toFloatOrNull()?.let { y -> x to y } } } }
-            if (pts.isEmpty()) return Bed()
+        /** From a printer preset's printable_area ("0x0", "256x0", "256x256", "0x256"), printable_height and bed_exclude_area. */
+        fun of(area: List<String>?, height: String?, exclude: List<String>? = null): Bed {
+            fun points(list: List<String>?) = list.orEmpty().mapNotNull { p -> p.split('x').takeIf { it.size == 2 }?.let { (a, b) -> a.toFloatOrNull()?.let { x -> b.toFloatOrNull()?.let { y -> x to y } } } }
+            val pts = points(area); val h = height?.toFloatOrNull() ?: 256f
+            val zone = points(exclude).takeIf { it.size >= 3 }.orEmpty()
+            if (pts.isEmpty()) return Bed(height = h, exclude = zone)
             val minX = pts.minOf { it.first }; val minY = pts.minOf { it.second }
-            return Bed(minX, minY, pts.maxOf { it.first } - minX, pts.maxOf { it.second } - minY, height?.toFloatOrNull() ?: 256f)
+            return Bed(minX, minY, pts.maxOf { it.first } - minX, pts.maxOf { it.second } - minY, h, zone)
         }
     }
 }
@@ -113,11 +130,11 @@ class Scene {
         touch()
     }
 
-    /** Objects that stick out of the printable volume (they would not slice as placed). */
+    /** Objects that stick out of the printable volume or sit on its no-go zone (they would not slice as placed). */
     fun outside(): List<PlateObject> = objects.filter { o ->
         val b = o.worldBounds()
         b.min.x < bed.originX - 0.01f || b.min.y < bed.originY - 0.01f || b.max.x > bed.originX + bed.width + 0.01f ||
-            b.max.y > bed.originY + bed.depth + 0.01f || b.max.z > bed.height + 0.01f
+            b.max.y > bed.originY + bed.depth + 0.01f || b.max.z > bed.height + 0.01f || bed.excludes(b.min.x, b.min.y, b.max.x, b.max.y)
     }
 
     /** The plate as the slicer gets it: every object with its final placement. */

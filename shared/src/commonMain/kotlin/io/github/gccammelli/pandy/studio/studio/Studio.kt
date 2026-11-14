@@ -140,7 +140,9 @@ class Studio(private var platform: Platform, private val scope: CoroutineScope) 
         val lib = library ?: return
         printer = p
         platform.saveSetting("printer", p.name)
-        scene.bed = io.github.gccammelli.pandy.studio.studio.Bed.of((p["printable_area"] as? Setting.Many)?.values, p.string("printable_height"))
+        scene.bed = io.github.gccammelli.pandy.studio.studio.Bed.of((p["printable_area"] as? Setting.Many)?.values, p.string("printable_height"),
+            (p["bed_exclude_area"] as? Setting.Many)?.values)
+        loadPlate(p)
         processes = lib.processes(p.name)
         process = processes.firstOrNull { it.name == p.string("default_print_profile") } ?: processes.firstOrNull { it.name.startsWith("0.20mm Standard") } ?: processes.firstOrNull()
         filamentChoices = lib.filaments(p.name).sortedWith(compareBy({ !it.name.startsWith("Bambu") }, { it.name }))
@@ -150,6 +152,24 @@ class Studio(private var platform: Platform, private val scope: CoroutineScope) 
         if (keep.isNotEmpty() && keep.all { (f, _) -> f in filamentChoices }) filaments.addAll(keep)
         else (filamentChoices.firstOrNull { it.name == default } ?: filamentChoices.firstOrNull())?.let { filaments.add(it to colorOf(it)) }
         syncColors(); invalidate()
+    }
+
+    private var plateJob: Job? = null
+
+    /** Draws the printer's own plate when the plugin carries its model; the plain rectangle stays otherwise. */
+    private fun loadPlate(p: Preset) {
+        plateJob?.cancel()
+        val host = platform
+        plateJob = scope.launch {
+            val mesh = runCatching {
+                val model = p.string("printer_model") ?: return@runCatching null
+                val file = host.profiles().read("profiles/BBL/machine/$model.json")
+                    ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
+                    ?.get("bed_model")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: return@runCatching null
+                host.plateModel(file)?.let { withContext(Dispatchers.Default) { io.github.gccammelli.pandy.studio.io.Stl.read(it) } }
+            }.getOrNull()
+            if (printer == p && mesh != null) scene.bed = scene.bed.copy(plate = mesh)
+        }
     }
 
     fun chooseProcess(p: Preset) { process = p; invalidate() }

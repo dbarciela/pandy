@@ -152,6 +152,12 @@ class StudioPluginClient(private val context: Context, val engineId: String = "b
         }
     }
 
+    override suspend fun plateModel(file: String): ByteArray? {
+        if (!Regex("bbl-3dp-[A-Za-z0-9]+\\.stl").matches(file)) return null
+        val f = File(resources().canonicalFile, "resources/profiles/BBL/$file")
+        return withContext(Dispatchers.IO) { f.takeIf { it.isFile && it.length() in 1..20_000_000L }?.readBytes() }
+    }
+
     override suspend fun slice(job: SliceJob, onLog: (String) -> Unit): SliceRun {
         require(engineId == "bambu" || loadedResourceVersion != null) { "Load this engine’s profiles before slicing." }
         val started = SystemClock.elapsedRealtime()

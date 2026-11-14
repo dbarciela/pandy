@@ -105,6 +105,23 @@ class StudioLogicTest {
 
     private fun loaded(p: Platform = StudioTestHost()) = runBlocking { Studio(p, this).also { it.load().join() } }
 
+    @Test fun thePrintersOwnPlateAndNoGoZoneAreDrawnWhenThePluginHasThem() {
+        val files = io.github.gccammelli.pandy.studio.ui.studioTestProfiles.toMutableMap()
+        files["profiles/BBL/machine/x1c.json"] = files.getValue("profiles/BBL/machine/x1c.json").replace("\"printable_height\":\"250\"",
+            "\"printable_height\":\"250\",\"printable_area\":[\"0x0\",\"256x0\",\"256x256\",\"0x256\"],\"bed_exclude_area\":[\"0x0\",\"18x0\",\"18x28\",\"0x28\"]")
+        files["profiles/BBL/machine/Bambu Lab X1 Carbon.json"] = """{"type":"machine_model","name":"Bambu Lab X1 Carbon","bed_model":"bbl-3dp-X1.stl"}"""
+        val host = StudioTestHost(files)
+        host.plates["bbl-3dp-X1.stl"] = Stl.writeBinary(Shapes.box(258f, 276f, 0.4f))
+        val s = loaded(host)
+        assertEquals("Bambu Lab X1 Carbon 0.4 nozzle", s.printer?.name)
+        assertEquals(4, s.scene.bed.exclude.size)
+        assertEquals(Shapes.box(258f, 276f, 0.4f).triangleCount, s.scene.bed.plate?.triangleCount)
+        // A printer whose model names no plate keeps the plain rectangle.
+        s.choosePrinter(s.printers.flatMap { it.nozzles }.first { "A1 mini" in it.name })
+        runBlocking { kotlinx.coroutines.delay(50) }
+        assertNull(s.scene.bed.plate); assertTrue(s.scene.bed.exclude.isEmpty())
+    }
+
     @Test fun filamentsCanBeAddedRecolouredAndRemovedWithObjectsFollowing() {
         val s = loaded(); val pla = s.filamentChoices.first { "PLA" in it.name }; val petg = s.filamentChoices.first { "PETG" in it.name }
         assertEquals(listOf("#00AE42"), s.scene.colors)

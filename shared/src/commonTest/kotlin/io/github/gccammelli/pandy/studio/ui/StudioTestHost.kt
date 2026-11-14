@@ -35,4 +35,7 @@ internal class StudioTestHost(val files: Map<String, String> = studioTestProfile
     override fun saveSetting(key: String, value: String) { settings[key] = value }
     override suspend fun profiles() = ProfileSource { files[it] }
     override suspend fun slice(job: SliceJob, onLog: (String) -> Unit): SliceRun = error("not sliced in this test")
+    /** Plate models by file name, as the plugin's resources carry them. */
+    val plates = mutableMapOf<String, ByteArray>()
+    override suspend fun plateModel(file: String) = plates[file]
 }
