@@ -79,6 +79,7 @@ fun PlateScreen(studio: Studio, nav: StudioNav) {
                     Spacer(Modifier.width(6.dp)); T(f.string("filament_type") ?: f.name.substringBefore(" @"), 13.sp)
                 }
             }
+            Chip(Icons.Default.GridView, studio.plate.shortLabel) { sheet = "plate" }
             // One filament per plate for now: per-object filaments are not covered by the equivalence tests yet.
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -111,6 +112,7 @@ fun PlateScreen(studio: Studio, nav: StudioNav) {
     when (sheet) {
         "printer" -> PrinterSheet(studio) { sheet = null }
         "process" -> ProcessSheet(studio) { sheet = null }
+        "plate" -> PlateSheet(studio) { sheet = null }
         "filament" -> FilamentSheet(studio, filamentSlot) { sheet = null }
     }
 }

@@ -22,6 +22,7 @@ internal val studioTestProfiles = mapOf(
     "profiles/BBL/filament/pla.json" to """{"type":"filament","name":"Bambu PLA Basic @BBL X1C","instantiation":"true","filament_type":["PLA"],"default_filament_colour":["#00AE42"],
         "compatible_printers":["Bambu Lab X1 Carbon 0.4 nozzle","Bambu Lab A1 mini 0.4 nozzle"]}""",
     "profiles/BBL/filament/petg.json" to """{"type":"filament","name":"Bambu PETG HF @BBL X1C","instantiation":"true","filament_type":["PETG"],
+        "cool_plate_temp":["0"],"textured_plate_temp":["70"],
         "compatible_printers":["Bambu Lab X1 Carbon 0.4 nozzle","Bambu Lab A1 mini 0.4 nozzle"]}""",
 )
 

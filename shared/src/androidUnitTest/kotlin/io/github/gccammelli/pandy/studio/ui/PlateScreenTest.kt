@@ -115,6 +115,14 @@ class PlateScreenTest {
         compose.runOnIdle { assertEquals(StudioScreen.Plate, nav.current) }
     }
 
+    @Test fun theBuildPlateChipOpensItsPickerAndChoosesCoolPlate() {
+        show()
+        text("Textured PEI").performScrollTo().performClick()
+        text("Build plate").assertExists()
+        text("Cool Plate").performClick()
+        text("Cool").assertExists()
+    }
+
     @Test fun theObjectPanelRotatesScalesTipsDuplicatesAndDeletes() {
         cube(); show()
         text("Mochi").assertExists(); text("20.0 × 20.0 × 20.0 mm").assertExists(); text("100%").assertExists()

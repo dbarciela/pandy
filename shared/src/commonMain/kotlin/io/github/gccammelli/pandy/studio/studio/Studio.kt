@@ -36,6 +36,13 @@ sealed class SliceState {
     data class Failed(val message: String) : SliceState()
 }
 
+enum class BuildPlate(val slicerName: String, val shortLabel: String, val temperatureKey: String) {
+    COOL("Cool Plate", "Cool", "cool_plate_temp"),
+    ENGINEERING("Engineering Plate", "Engineering", "eng_plate_temp"),
+    HIGH_TEMP("High Temp Plate", "High Temp", "hot_plate_temp"),
+    TEXTURED_PEI("Textured PEI Plate", "Textured PEI", "textured_plate_temp"),
+}
+
 /** The app's state: presets, the plate, the user's setting changes and the last slice. */
 class Studio(private var platform: Platform, private val scope: CoroutineScope) {
     val scene = Scene()
@@ -43,6 +50,7 @@ class Studio(private var platform: Platform, private val scope: CoroutineScope) 
     var schema by mutableStateOf<io.github.gccammelli.pandy.studio.slicer.Schema?>(null); private set
     var printers by mutableStateOf<List<PrinterModel>>(emptyList()); private set
     var printer by mutableStateOf<Preset?>(null); private set
+    var plate by mutableStateOf(BuildPlate.TEXTURED_PEI); private set
     var processes by mutableStateOf<List<Preset>>(emptyList()); private set
     var process by mutableStateOf<Preset?>(null); private set
     var filamentChoices by mutableStateOf<List<Preset>>(emptyList()); private set
@@ -108,6 +116,7 @@ class Studio(private var platform: Platform, private val scope: CoroutineScope) 
             schema = loadedSchema
             library = lib
             printers = lib.printers()
+            plate = BuildPlate.values().firstOrNull { it.slicerName == platform.loadSetting("plate") } ?: BuildPlate.TEXTURED_PEI
             val saved = platform.loadSetting("printer")
             val requested = printers.flatMap { it.nozzles }.firstOrNull { it.name == preferredPrinter }
             val p = (if (preferRequested) requested else null)
@@ -144,6 +153,11 @@ class Studio(private var platform: Platform, private val scope: CoroutineScope) 
     }
 
     fun chooseProcess(p: Preset) { process = p; invalidate() }
+
+    fun choosePlate(p: BuildPlate) { plate = p; platform.saveSetting("plate", p.slicerName); invalidate() }
+
+    fun incompatibleFilaments(plate: BuildPlate): List<Preset> = filaments.map { it.first }.distinctBy { it.name }
+        .filter { it.string(plate.temperatureKey) == "0" }
 
     fun setFilament(slot: Int, preset: Preset, color: String = colorOf(preset)) {
         if (slot < filaments.size) filaments[slot] = preset to color else filaments.add(preset to color)
@@ -214,7 +228,7 @@ class Studio(private var platform: Platform, private val scope: CoroutineScope) 
     fun job(): SliceJob? {
         val p = printer ?: return null; val pr = process ?: return null
         if (filaments.isEmpty() || scene.objects.isEmpty()) return null
-        return SliceJob(ThreeMf.writePlain(scene.sceneObjects()), p.name, pr.name, filaments.map { it.first.name }, overrides.toMap(),
+        return SliceJob(ThreeMf.writePlain(scene.sceneObjects(), plate.slicerName), p.name, pr.name, filaments.map { it.first.name }, overrides.toMap(),
             printerIncludes = library?.includes(p.name).orEmpty())
     }
 

@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.gccammelli.pandy.studio.slicer.Setting
+import io.github.gccammelli.pandy.studio.studio.BuildPlate
 import io.github.gccammelli.pandy.studio.studio.Studio
 
 @Composable
@@ -60,6 +61,26 @@ fun ProcessSheet(studio: Studio, onDismiss: () -> Unit) = Sheet(onDismiss, "Qual
                 Column(Modifier.weight(1f)) {
                     T(p.name.substringBefore(" @"), 16.sp, if (sel) C.Accent else C.Text, if (sel) FontWeight.Medium else FontWeight.Normal)
                     p.string("layer_height")?.let { T("Layer height $it mm", 13.sp, C.Sub) }
+                }
+                if (sel) Icon(Icons.Default.Check, null, tint = C.Accent)
+            }
+        }
+    }
+}
+
+@Composable
+fun PlateSheet(studio: Studio, onDismiss: () -> Unit) = Sheet(onDismiss, "Build plate", confirm = null) {
+    LazyColumn(Modifier.heightIn(max = 520.dp)) {
+        items(BuildPlate.values().toList()) { plate ->
+            val sel = studio.plate == plate
+            val incompatible = studio.incompatibleFilaments(plate)
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { studio.choosePlate(plate); onDismiss() }.padding(vertical = 14.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    T(plate.slicerName, 16.sp, if (sel) C.Accent else C.Text, if (sel) FontWeight.Medium else FontWeight.Normal)
+                    if (incompatible.isNotEmpty()) {
+                        T("Not for ${incompatible.joinToString(", ") { it.string("filament_type") ?: it.name.substringBefore(" @") }}", 13.sp, C.Sub)
+                    }
                 }
                 if (sel) Icon(Icons.Default.Check, null, tint = C.Accent)
             }

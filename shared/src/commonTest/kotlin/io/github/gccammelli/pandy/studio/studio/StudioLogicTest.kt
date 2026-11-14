@@ -156,14 +156,37 @@ class StudioLogicTest {
         assertNull(s.job()); assertFalse(s.canSlice)
         s.addSample("cube", Shapes.box(10f, 10f, 10f)); s.addSample("b", Shapes.box(10f, 10f, 10f))
         assertTrue(s.canSlice)
+        // The plate type travels in the 3MF's plate settings (the slicers ignore it in the process settings).
+        fun plateSettings(job: SliceJob) = Zip.read(job.model3mf)["Metadata/model_settings.config"]!!.decodeToString()
+        val defaultJob = s.job()!!
+        assertTrue(defaultJob.processOverrides.isEmpty())
+        assertTrue("<metadata key=\"bed_type\" value=\"Textured PEI Plate\"/>" in plateSettings(defaultJob))
+        assertEquals(2, Regex("<model_instance>").findAll(plateSettings(defaultJob)).count()) // both objects on the plate
         s.set("layer_height", Setting.One("0.3"))
         val job = s.job()!!
         assertEquals("Bambu Lab X1 Carbon 0.4 nozzle", job.printer); assertEquals("0.20mm Standard @BBL X1C", job.process)
-        assertEquals(listOf("Bambu PLA Basic @BBL X1C"), job.filaments); assertEquals(mapOf("layer_height" to Setting.One("0.3")), job.processOverrides)
+        assertEquals(listOf("Bambu PLA Basic @BBL X1C"), job.filaments)
+        assertEquals(mapOf("layer_height" to Setting.One("0.3")), job.processOverrides)
+        s.choosePlate(BuildPlate.COOL)
+        val coolJob = s.job()!!
+        assertTrue("<metadata key=\"bed_type\" value=\"Cool Plate\"/>" in plateSettings(coolJob))
+        assertNotEquals(job, coolJob)
         assertEquals(listOf(mapOf("id" to "1", "type" to "PLA", "color" to "#00AE42")), s.usedFilaments())
         s.setFilament(1, s.filamentChoices.first { "PETG" in it.name }, "#123456"); s.scene.objects.last().filament = 1
         assertEquals(listOf(mapOf("id" to "1", "type" to "PLA", "color" to "#00AE42"), mapOf("id" to "2", "type" to "PETG", "color" to "#123456")), s.usedFilaments())
         s.scene.objects.forEach { it.filament = 5 }; assertTrue(s.usedFilaments().isEmpty())
+    }
+
+    @Test fun plateChoiceIsSavedAndRestoredAndFlagsIncompatibleFilaments() {
+        val host = StudioTestHost()
+        val s = loaded(host)
+        val petg = s.filamentChoices.first { "PETG" in it.name }
+        s.setFilament(1, petg)
+        assertEquals(listOf(petg), s.incompatibleFilaments(BuildPlate.COOL))
+        assertTrue(s.incompatibleFilaments(BuildPlate.TEXTURED_PEI).isEmpty())
+        s.choosePlate(BuildPlate.COOL)
+        assertEquals("Cool Plate", host.settings["plate"])
+        assertEquals(BuildPlate.COOL, loaded(host).plate)
     }
 
     @Test fun aSuccessfulSliceLoadsThePreviewAndReportsProgress() = runBlocking {

@@ -136,7 +136,11 @@ object ThreeMf {
     /** Text for an XML attribute value: names come from files and must not break the document. */
     fun escapeXml(s: String): String = buildString { for (c in s) when (c) { '&' -> append("&amp;"); '<' -> append("&lt;"); '>' -> append("&gt;"); '"' -> append("&quot;"); '\'' -> append("&apos;"); else -> if (c < ' ') append(' ') else append(c) } }
 
-    fun writePlain(objects:List<SceneObject>):ByteArray {
+    /**
+     * A plain 3MF of [objects]. [bedType] (the slicer's name, e.g. "Textured PEI Plate") goes into the plate's own settings,
+     * the only place the slicers' command line takes it from: a bed type in the process settings is ignored.
+     */
+    fun writePlain(objects:List<SceneObject>, bedType:String?=null):ByteArray {
         val res=StringBuilder();val build=StringBuilder()
         for(i in objects.indices) {
             val obj=objects[i];val id=i+1;res.append("<object id=\"").append(id).append("\" name=\"").append(escapeXml(obj.name)).append("\" type=\"model\"><mesh><vertices>")
@@ -151,6 +155,11 @@ object ThreeMf {
         val model="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\" xml:lang=\"en-US\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\"><resources>${res}</resources><build>${build}</build></model>"
         val types="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"model\" ContentType=\"application/vnd.ms-package.3dmanufacturing-3dmodel+xml\"/></Types>"
         val rels="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Target=\"/3D/3dmodel.model\" Id=\"rel0\" Type=\"http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel\"/></Relationships>"
-        return Zip.write(listOf("[Content_Types].xml" to types.encodeToByteArray(),"_rels/.rels" to rels.encodeToByteArray(),"3D/3dmodel.model" to model.encodeToByteArray()))
+        return Zip.write(listOf("[Content_Types].xml" to types.encodeToByteArray(),"_rels/.rels" to rels.encodeToByteArray(),"3D/3dmodel.model" to model.encodeToByteArray())+listOfNotNull(bedType?.let{"Metadata/model_settings.config" to plateSettings(objects.size,it).encodeToByteArray()}))
+    }
+
+    private fun plateSettings(objectCount:Int, bedType:String):String {
+        val instances=(1..objectCount).joinToString(""){ "<model_instance><metadata key=\"object_id\" value=\"$it\"/><metadata key=\"instance_id\" value=\"0\"/></model_instance>" }
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config><plate><metadata key=\"plater_id\" value=\"1\"/><metadata key=\"bed_type\" value=\"${escapeXml(bedType)}\"/>$instances</plate></config>\n"
     }
 }
