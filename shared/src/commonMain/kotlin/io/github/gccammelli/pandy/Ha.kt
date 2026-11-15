@@ -211,6 +211,10 @@ class Entity(val id: String, val state: String, val attrs: JsonObject) {
     val fahrenheit get() = attrs.s("unit_of_measurement")?.lowercase() == "°f"
     /** A temperature entity's value as Celsius, which is what the printer and Pandy's screens work in. A Fahrenheit reading is whole degrees, so it is rounded back (82 °F is 28 °C, not 27.8 shown as 27). */
     val celsius get() = num?.let { if (fahrenheit) kotlin.math.round((it - 32) * 5 / 9) else it }
+    /** A duration entity's value in minutes. Home Assistant shows durations in the unit the user (or the integration) picked: hours, seconds or days too. */
+    val minutes get() = num?.let { v ->
+        when (attrs.s("unit_of_measurement")?.lowercase()) { "h" -> v * 60; "s" -> v / 60; "d" -> v * 1440; else -> v }
+    }
 }
 
 /**
@@ -347,7 +351,7 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     val paused get() = status == "pause"
     val progress get() = num("sensor.print_progress")?.toInt() ?: 0
     /** Minutes left. */
-    val remaining get() = num("sensor.remaining_time")
+    val remaining get() = get("sensor.remaining_time")?.minutes
     val layer get() = num("sensor.current_layer")?.toInt()
     val layers get() = num("sensor.total_layers")?.toInt()
     val task get() = state("sensor.subtask_name")

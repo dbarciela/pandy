@@ -136,4 +136,15 @@ class PrintersFromTest {
         assertEquals(220.0, p.rightNozzleTarget)
         assertEquals("right", p.activeNozzle)
     }
+
+    @Test fun remainingTimeFollowsTheUnitHomeAssistantReportsItIn() {
+        // Home Assistant shows the remaining time in hours when the user picks it: 3.97 h is 238 minutes, not 3.
+        fun unit(u: String?) = JsonObject(if (u == null) emptyMap() else mapOf("unit_of_measurement" to kotlinx.serialization.json.JsonPrimitive(u)))
+        assertEquals(238.2, Entity("sensor.r", "3.97", unit("h")).minutes!!, 0.001)
+        assertEquals(238.0, Entity("sensor.r", "238", unit("min")).minutes!!, 0.001)
+        assertEquals(238.0, Entity("sensor.r", "238", unit(null)).minutes!!, 0.001)
+        assertEquals(4.0, Entity("sensor.r", "240", unit("s")).minutes!!, 0.001)
+        assertEquals(1440.0, Entity("sensor.r", "1", unit("d")).minutes!!, 0.001)
+        assertNull(Entity("sensor.r", "unavailable", unit("h")).minutes)
+    }
 }
