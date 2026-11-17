@@ -46,6 +46,7 @@ import io.github.gccammelli.pandy.LocalPlatform
 import io.github.gccammelli.pandy.PreviewMesh
 import io.github.gccammelli.pandy.Printer
 import io.github.gccammelli.pandy.Repo
+import io.github.gccammelli.pandy.activePlate
 import io.github.gccammelli.pandy.activeSpool
 import io.github.gccammelli.pandy.button
 import io.github.gccammelli.pandy.printHistory
@@ -77,8 +78,11 @@ fun buildPrintShareText(p: Printer): String {
     if (totalG != null && totalG > 0) {
         val usedG = formatDec(totalG * (p.progress / 100.0))
         lines += "• Weight: $usedG g / ${formatDec(totalG)} g"
-        val cost = formatDec((totalG / 1000.0) * 20.0, 2)
-        lines += "• Estimated Cost: ~${cost} €"
+        val rate = Repo.spoolPricePerKg(p.activeSpool()?.second)
+        if (rate != null) {
+            val cost = formatDec((totalG / 1000.0) * rate, 2)
+            lines += "• Estimated Cost: ~$cost ${Repo.filamentCurrency}"
+        }
     }
     if (totalM != null && totalM > 0) {
         lines += "• Length: ${formatDec(totalM)} m"
@@ -101,9 +105,11 @@ private fun formatDec(v: Double, decimals: Int = 1): String {
     return ((v * factor).roundToInt() / factor).toString()
 }
 
+private const val MAX_PREVIEW_3MF_BYTES = 16L * 1024 * 1024
+
 private data class ExtraJobData(
     val coverUrl: String? = null,
-    val mesh: PreviewMesh? = null,
+    val modelPath: String? = null,
     val weightGrams: Double? = null,
     val lengthMeters: Double? = null,
     val loaded: Boolean = true
@@ -133,23 +139,18 @@ fun JobDetailsScreen(p: Printer) {
                 history.firstOrNull { h ->
                     h.title.equals(clean, ignoreCase = true) || h.name.contains(clean, ignoreCase = true)
                 }
-            } ?: if (p.printing) history.firstOrNull() else null
+            }
 
             if (match != null) {
                 val sliceXml = runCatching {
                     extras.get("/api/bambu_lab/file_cache/" + match.path.removeSuffix(".3mf") + ".slice_info.config")
                 }.getOrNull()
-                val plate = p.layer?.let { 1 } ?: 1
+                val plate = p.activePlate()
                 val plateInfo = sliceXml?.let { slicePlateInfo(it, plate) }
-
-                val mesh = runCatching {
-                    val modelBytes = extras.bytes("/api/bambu_lab/file_cache/" + match.path)
-                    readProject(modelBytes).mesh
-                }.getOrNull()
 
                 value = ExtraJobData(
                     coverUrl = match.thumbUrl,
-                    mesh = mesh,
+                    modelPath = match.path.takeIf { match.size in 1..MAX_PREVIEW_3MF_BYTES },
                     weightGrams = plateInfo?.weightGrams,
                     lengthMeters = plateInfo?.lengthMeters,
                     loaded = true
@@ -162,7 +163,33 @@ fun JobDetailsScreen(p: Printer) {
         }
     }
 
-    val mesh = p.mesh ?: extraJobData?.mesh
+    var meshLoading by remember { mutableStateOf(false) }
+    val lazyMesh by produceState<PreviewMesh?>(p.mesh, show3d, p.task, extraJobData?.modelPath) {
+        if (!show3d) {
+            value = p.mesh
+            meshLoading = false
+            return@produceState
+        }
+        if (p.mesh != null) {
+            value = p.mesh
+            meshLoading = false
+            return@produceState
+        }
+        meshLoading = true
+        val directMesh = Repo.directPrinter?.let { runCatching { it.loadJobMesh() }.getOrNull() }
+        val extrasMesh = if (directMesh == null && extraJobData?.modelPath != null) {
+            val path = extraJobData!!.modelPath!!
+            runCatching {
+                val modelBytes = Repo.extras?.bytes("/api/bambu_lab/file_cache/$path")
+                if (modelBytes != null && modelBytes.size <= MAX_PREVIEW_3MF_BYTES) readProject(modelBytes).mesh else null
+            }.getOrNull()
+        } else null
+        value = directMesh ?: extrasMesh
+        meshLoading = false
+    }
+
+    val mesh = lazyMesh ?: p.mesh
+    val canShow3d = mesh != null || extraJobData?.modelPath != null || Repo.directPrinter != null
     val coverImg = p.coverImage ?: extraJobData?.coverUrl
     val totalG = p.printWeight ?: extraJobData?.weightGrams
     val totalM = p.printLength ?: extraJobData?.lengthMeters
@@ -170,10 +197,12 @@ fun JobDetailsScreen(p: Printer) {
 
     fun doShare() {
         scope.launch {
-            val bytes = runCatching {
-                p.camera?.let { Repo.ha?.bytes("/api/camera_proxy/$it") }
-                    ?: coverImg?.let { if (it.startsWith("/api/bambu_lab/")) Repo.extras?.bytes(it) else Repo.ha?.bytes(it) }
-            }.getOrNull()
+            val camBytes = p.camera?.let { runCatching { Repo.ha?.bytes("/api/camera_proxy/$it") }.getOrNull() }
+            val bytes = camBytes ?: coverImg?.let {
+                runCatching {
+                    if (it.startsWith("/api/bambu_lab/")) Repo.extras?.bytes(it) else Repo.ha?.bytes(it)
+                }.getOrNull()
+            }
             pl.share(buildPrintShareText(p), bytes, p.task ?: "Print Details")
         }
     }
@@ -200,13 +229,20 @@ fun JobDetailsScreen(p: Printer) {
                     .background(previewBg)
                     .border(1.dp, C.Line, RoundedCornerShape(12.dp))
                     .clickable {
-                        if (mesh != null) show3d = !show3d
+                        if (canShow3d) show3d = !show3d
                     },
                 contentAlignment = Alignment.Center
             ) {
                 when {
                     show3d && mesh != null -> {
                         PreviewMeshCanvas(mesh, listOf(spoolColor), showPlate = true)
+                    }
+                    show3d && meshLoading -> {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = C.Accent, modifier = Modifier.size(32.dp), strokeWidth = 2.5.dp)
+                            Gap(10.dp)
+                            T("Loading 3D preview...", 12.sp, C.Sub)
+                        }
                     }
                     coverImg != null -> {
                         HaImage(coverImg, Modifier.fillMaxSize().padding(12.dp))
@@ -235,7 +271,7 @@ fun JobDetailsScreen(p: Printer) {
                     Modifier.align(Alignment.BottomEnd).padding(10.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (mesh != null) {
+                    if (canShow3d) {
                         Box(
                             Modifier.clip(RoundedCornerShape(16.dp))
                                 .background(if (show3d) C.Accent else C.Card.copy(alpha = 0.85f))
@@ -299,24 +335,26 @@ fun JobDetailsScreen(p: Printer) {
                 }
             }
 
-            Gap(14.dp)
+            if (p.printing) {
+                Gap(14.dp)
 
-            // ---------- 3. Print Speed Selector (On-the-Fly) ----------
-            T("Print Speed", 15.sp, weight = FontWeight.Bold)
-            Gap(8.dp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                val orderedSpeeds = listOf("silent" to "Silent\n50%", "standard" to "Standard\n100%", "sport" to "Sport\n124%", "ludicrous" to "Ludicrous\n166%")
-                orderedSpeeds.forEach { (key, title) ->
-                    val sel = p.speed == key
-                    Box(
-                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                            .background(if (sel) C.Accent else C.Fill)
-                            .border(1.dp, if (sel) C.Accent else C.Line, RoundedCornerShape(10.dp))
-                            .clickable { p.setSpeed(key, err) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        T(title, 12.sp, if (sel) C.OnAccent else C.Text, weight = if (sel) FontWeight.Bold else FontWeight.Normal, align = androidx.compose.ui.text.style.TextAlign.Center)
+                // ---------- 3. Print Speed Selector (On-the-Fly) ----------
+                T("Print Speed", 15.sp, weight = FontWeight.Bold)
+                Gap(8.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    val orderedSpeeds = listOf("silent" to "Silent\n50%", "standard" to "Standard\n100%", "sport" to "Sport\n124%", "ludicrous" to "Ludicrous\n166%")
+                    orderedSpeeds.forEach { (key, title) ->
+                        val sel = p.speed == key
+                        Box(
+                            Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                .background(if (sel) C.Accent else C.Fill)
+                                .border(1.dp, if (sel) C.Accent else C.Line, RoundedCornerShape(10.dp))
+                                .clickable { p.setSpeed(key, err) }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            T(title, 12.sp, if (sel) C.OnAccent else C.Text, weight = if (sel) FontWeight.Bold else FontWeight.Normal, align = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
                     }
                 }
             }
@@ -359,15 +397,16 @@ fun JobDetailsScreen(p: Printer) {
                     Gap(8.dp)
                 }
 
-                if (totalG != null && totalG > 0) {
-                    val rate = 20.0 // standard default 20 €/kg
+                val rate = Repo.spoolPricePerKg(feeding?.second)
+                val currency = Repo.filamentCurrency
+                if (totalG != null && totalG > 0 && rate != null) {
                     val costUsed = (totalG * (p.progress / 100.0) / 1000.0) * rate
                     val costTotal = (totalG / 1000.0) * rate
-                    DetailMetricRow("Estimated Cost (20 €/kg)", "${formatDec(costUsed, 2)} € used (${formatDec(costTotal, 2)} € total)")
+                    DetailMetricRow("Estimated Cost (${formatDec(rate)} $currency/kg)", "${formatDec(costUsed, 2)} $currency used (${formatDec(costTotal, 2)} $currency total)")
                 } else if (!isExtraLoaded) {
                     DetailMetricRow("Estimated Cost", "Calculating...")
                 } else {
-                    DetailMetricRow("Status", stageText(p.stage) ?: "Printing")
+                    DetailMetricRow("Status", stageText(p.stage) ?: if (p.status == "finish") "Completed" else "Printing")
                 }
             }
 
@@ -379,16 +418,18 @@ fun JobDetailsScreen(p: Printer) {
             }
 
             // ---------- 5. Job Actions (Skip / Pause / Stop) ----------
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                if (p.objects.size > 1) {
-                    JobButton(Icons.Outlined.ContentCut, "Skip Parts", C.Text) { Nav.go(Screen.Skip) }
+            if (p.printing) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (p.objects.size > 1) {
+                        JobButton(Icons.Outlined.ContentCut, "Skip Parts", C.Text) { Nav.go(Screen.Skip) }
+                    }
+                    if (p.paused) {
+                        JobButton(Icons.Default.PlayArrow, "Resume", C.Text) { p.button("resume", err) }
+                    } else {
+                        JobButton(Icons.Default.Pause, "Pause", C.Text) { p.button("pause", err) }
+                    }
+                    JobButton(Icons.Default.Stop, "Stop", C.Red) { confirmStop = true }
                 }
-                if (p.paused) {
-                    JobButton(Icons.Default.PlayArrow, "Resume", C.Text) { p.button("resume", err) }
-                } else {
-                    JobButton(Icons.Default.Pause, "Pause", C.Text) { p.button("pause", err) }
-                }
-                JobButton(Icons.Default.Stop, "Stop", C.Red) { confirmStop = true }
             }
 
             Gap(28.dp)

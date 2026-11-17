@@ -90,14 +90,26 @@ fun modelName(code: String?, serial: String = ""): String = when {
 /** X1 and H2 cameras stream RTSP; P1 and A1 send JPEG frames. */
 fun rtspCamera(model: String) = model.startsWith("X1") || model.startsWith("H2") || model.startsWith("P2") || model.startsWith("X2")
 
-/** Merges a report into the last one: printers (P1, A1) send only what changed. Objects merge; arrays and values replace. */
+/**
+ * Merges a report into the last one: printers (P1, A1) send only what changed.
+ * Objects merge; values and most arrays replace. For the `"ams"` array, full lists (all entries carrying `"tray"`)
+ * replace removed units while keeping per-unit fields merged by id, and partial delta entries merge by id.
+ */
 fun deepMerge(old: JsonObject, new: JsonObject): JsonObject = JsonObject(old + new.mapValues { (k, v) ->
     val o = old[k]
     if (o is JsonObject && v is JsonObject) deepMerge(o, v)
     else if (k == "ams" && o is JsonArray && v is JsonArray) {
-        val byId = o.objects().associateBy { it.int("id") }.toMutableMap()
-        v.objects().forEach { n -> val id = n.int("id"); byId[id] = byId[id]?.let { deepMerge(it, n) } ?: n }
-        if (byId.isNotEmpty() && null !in byId.keys) JsonArray(byId.values.toList()) else v
+        val oldObjs = o.objects()
+        val newObjs = v.objects()
+        if (newObjs.size != v.size || newObjs.any { it.int("id") == null }) v
+        else if (newObjs.all { it.containsKey("tray") }) {
+            val oldById = oldObjs.associateBy { it.int("id") }
+            JsonArray(newObjs.map { n -> oldById[n.int("id")]?.let { deepMerge(it, n) } ?: n })
+        } else {
+            val byId = oldObjs.associateBy { it.int("id") }.toMutableMap()
+            newObjs.forEach { n -> val id = n.int("id"); byId[id] = byId[id]?.let { deepMerge(it, n) } ?: n }
+            if (byId.isNotEmpty() && null !in byId.keys) JsonArray(byId.values.toList()) else v
+        }
     } else v
 })
 
@@ -314,8 +326,8 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
             job.weightGrams?.let { put("weight_g", it) }
             job.lengthMeters?.let { put("length_m", it) }
         })
-        job.weightGrams?.let { add("sensor", "print_weight", it) } ?: add("sensor", "print_weight", 0.0)
-        job.lengthMeters?.let { add("sensor", "print_length", it) } ?: add("sensor", "print_length", 0.0)
+        job.weightGrams?.let { add("sensor", "print_weight", it) }
+        job.lengthMeters?.let { add("sensor", "print_length", it) }
     }
     val skipped = (p["s_obj"] as? JsonArray).orEmpty()
     add("sensor", "skipped_objects", skipped.size, buildJsonObject { put("objects", JsonArray(skipped)) })
@@ -360,13 +372,16 @@ fun lanEntities(c: LanConfig, r: JsonObject, online: Boolean, job: LanJob? = nul
         if (deviceModel == "AMS 2 Pro" || deviceModel == "AMS HT") {
             val rawStatus = a.str("drying_status") ?: a.str("_dry_status")
             val infoCode = a.str("info")?.removePrefix("0x")?.removePrefix("0X")?.toLongOrNull(16)?.let { ((it shr 4) and 0xFL).toInt() }
+            val hasDrying = listOf("is_drying", "drying_status", "_dry_status", "dry_status", "dry_time", "dry_setting").any { a.get(it) != null } || infoCode in 1..3
             val isDrying = (a.int("dry_time") ?: 0) > 0 || a.flag("is_drying") == true ||
                 rawStatus in listOf("drying", "DRYING", "checking", "cooling") || (a.int("_dry_status") ?: a.int("dry_status")) in 1..3 || infoCode in 1..3
-            add("binary_sensor", "drying", if (isDrying) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_drying", deviceModel = deviceModel)
+            if (hasDrying) {
+                add("binary_sensor", "drying", if (isDrying) "on" else "off", device = dev, uid = "AMS_${amsIndex + 1}_drying", deviceModel = deviceModel)
+            }
             val remainMins = a.dbl("dry_time")?.takeIf { it > 0 || !isDrying } ?: (if (isDrying) a.o("dry_setting")?.dbl("dry_duration")?.times(60.0) else null) ?: a.dbl("remain_time")
-            add("sensor", "remaining_drying_time", remainMins?.div(60.0) ?: "unknown", device = dev, uid = "AMS_${amsIndex + 1}_remaining_drying_time", deviceModel = deviceModel)
+            remainMins?.let { add("sensor", "remaining_drying_time", it / 60.0, device = dev, uid = "AMS_${amsIndex + 1}_remaining_drying_time", deviceModel = deviceModel) }
             val targetTemp = a.o("dry_setting")?.dbl("dry_temperature")?.takeIf { it > 0 || !isDrying } ?: a.dbl("target_temp") ?: a.dbl("drying_temp")
-            add("sensor", "drying_target_temp", targetTemp ?: "unknown", device = dev, uid = "AMS_${amsIndex + 1}_drying_target_temp", deviceModel = deviceModel)
+            targetTemp?.let { add("sensor", "drying_target_temp", it, device = dev, uid = "AMS_${amsIndex + 1}_drying_target_temp", deviceModel = deviceModel) }
         }
         (0 until if (deviceModel == "AMS HT") 1 else 4).forEach { ti ->
             val t = trays.firstOrNull { it.int("id") == ti } ?: JsonObject(emptyMap())
@@ -485,10 +500,8 @@ private fun amsModel(ai: Int, a: JsonObject, modHw: String, modName: String): St
     val hw = "${a.str("hw_version").orEmpty()} ${a.str("hw").orEmpty()} $modHw"
     val isLite = modelOrType.contains("Lite", true) || modName.contains("ams_f1", true) || modName.contains("Lite", true)
     val isHt = ai >= 128 || modelOrType.contains("HT", true) || modelOrType.contains("N3S", true) || hw.contains("N3S", true) || modName.contains("N3S", true)
-    val isExplicitStandardAms = modName.equals("AMS", ignoreCase = true) || modelOrType.equals("AMS", ignoreCase = true)
-    val hasDryingTelemetry = (a.get("dry_time") != null || a.get("dry_setting") != null) && !isExplicitStandardAms
     val isAms2 = !isHt && !isLite && (modelOrType.contains("2 Pro", true) || modelOrType.contains("N3F", true) || modelOrType.contains("AMS 2", true) ||
-        hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) || modName.contains("n3f", true) || hasDryingTelemetry)
+        hw.contains("N3F", true) || modName.contains("2 Pro", true) || modName.contains("AMS 2", true) || modName.contains("n3f", true))
     return when {
         isHt -> "AMS HT"
         isAms2 -> "AMS 2 Pro"
@@ -525,11 +538,29 @@ class DirectPrinter(
 
     private val storage by lazy { storageFactory(config) }
     private var job: LanJob? = null
-    val currentMesh: PreviewMesh? get() = job?.mesh
+    private var cachedMeshKey: String? = null
+    private var cachedMesh: PreviewMesh? = null
+    val currentMesh: PreviewMesh? get() = cachedMesh?.takeIf { job?.key == cachedMeshKey }
     private var jobLoading: String? = null
     private var jobMissAt = 0L
     private var jobMisses = 0
     private var jobState: String? = null
+
+    /** Lazily reads and parses the active job's 3D preview geometry on demand, with a 16 MB size limit. */
+    suspend fun loadJobMesh(): PreviewMesh? {
+        val j = job ?: return null
+        if (j.key == cachedMeshKey && cachedMesh != null) return cachedMesh
+        val p = j.path ?: return null
+        if (j.size <= 0L || j.size > 16L * 1024 * 1024) return null
+        val xml = runCatching {
+            zipEntry(
+                j.size,
+                listOf(Regex(".*/3dmodel\\.model", RegexOption.IGNORE_CASE), Regex("3D/3dmodel\\.model", RegexOption.IGNORE_CASE)),
+                maxSize = 16L * 1024 * 1024,
+            ) { o, l -> storage.read(p, o, l) }?.second?.decodeToString()
+        }.getOrNull() ?: return null
+        return previewMesh(xml)?.also { cachedMeshKey = j.key; cachedMesh = it }
+    }
 
     /** When the job changes, finds its 3MF on the printer (as the integration does) and reads its picture and parts. */
     private fun checkJob() {
@@ -549,18 +580,24 @@ class DirectPrinter(
         jobLoading = key
         scope.launch {
             val found = runCatching { findJobFile(task, gcode) }.getOrNull()
-            val plate = Regex("""plate_(\d+)\.gcode""").find(gcode)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+            val plate = Regex("""plate_(\d+)\.gcode""").find(gcode)?.groupValues?.get(1)?.toIntOrNull()
+            val imgPlate = plate ?: 1
             val result = if (found == null) LanJob(key, null, null, emptyMap()) else {
                 val (path, size) = found
                 suspend fun entry(vararg names: String) = runCatching {
                     zipEntry(size, names.map { Regex(it, RegexOption.IGNORE_CASE) }) { o, l -> storage.read(path, o, l) }?.second
                 }.getOrNull()
                 val plateInfo = entry(".*Metadata/slice_info\\.config", "Metadata/slice_info\\.config")?.decodeToString()?.let { slicePlateInfo(it, plate) }
-                val meshXml = entry(".*/3dmodel\\.model", "3D/3dmodel\\.model")?.decodeToString()
-                val mesh = meshXml?.let { previewMesh(it) }
-                LanJob(key, entry(".*Metadata/plate_$plate\\.png", "Metadata/plate_$plate\\.png", ".*Metadata/plate_\\d+\\.png", "Metadata/.*\\.png"),
-                    entry(".*Metadata/pick_$plate\\.png", "Metadata/pick_$plate\\.png"),
-                    plateInfo?.objects.orEmpty(), plateInfo?.weightGrams, plateInfo?.lengthMeters, mesh)
+                LanJob(
+                    key,
+                    entry(".*Metadata/plate_$imgPlate\\.png", "Metadata/plate_$imgPlate\\.png", ".*Metadata/plate_\\d+\\.png", "Metadata/.*\\.png"),
+                    entry(".*Metadata/pick_$imgPlate\\.png", "Metadata/pick_$imgPlate\\.png"),
+                    plateInfo?.objects.orEmpty(),
+                    plateInfo?.weightGrams,
+                    plateInfo?.lengthMeters,
+                    path,
+                    size,
+                )
             }
             if (jobLoading != key) return@launch // a newer job is being looked for; this result is stale
             job = result
@@ -588,12 +625,9 @@ class DirectPrinter(
         }
         val dirs = listOf("/cache/" to listCached("/cache"), "/" to listCached("/"))
         for (n in names) for ((d, files) in dirs) files.firstOrNull { it.name.equals(n, ignoreCase = true) }?.let { return d + it.name to it.size }
-        val cleanTask = task.replace(' ', '_').removeSuffix(".3mf").removeSuffix(".gcode")
-        if (cleanTask.length >= 3) {
-            for ((d, files) in dirs) files.firstOrNull { it.name.contains(cleanTask, ignoreCase = true) && it.name.endsWith(".3mf", ignoreCase = true) }?.let { return d + it.name to it.size }
-        }
-        return dirs.flatMap { (d, f) -> f.filter { it.name.endsWith(".3mf", ignoreCase = true) }.map { d + it.name to it } }
+        if (task.isEmpty()) return dirs.flatMap { (d, f) -> f.filter { it.name.endsWith(".3mf", ignoreCase = true) }.map { d + it.name to it } }
             .maxByOrNull { it.second.modified }?.let { it.first to it.second.size }
+        return null
     }
 
     /** Print files on the printer, as the integration's print_history API lists cached prints (newest first). */
@@ -744,8 +778,8 @@ class DirectPrinter(
                         if (msg.o("print") == null && msg.o("info") == null && msg.o("get_version") == null) return@run
                         report = deepMerge(report, msg)
                         lastReport = Clock.System.now().toEpochMilliseconds()
-                        if (msg.o("print") != null) {
-                            if (!firstReport.isCompleted) firstReport.complete(Unit)
+                        if (msg.o("print")?.str("command") == "push_status") {
+                            firstReport.complete(Unit)
                             checkJob()
                         }
                         onReport?.invoke()
@@ -816,11 +850,6 @@ class DirectPrinter(
     private fun gcode(lines: String) = publish(printCmd("gcode_line", "param" to lines))
 
     private fun rowOf(entityId: String?) = rows.firstOrNull { it.id == entityId }
-
-    private fun updateAmsReport(amsId: Int, vararg fields: Pair<String, Any?>) {
-        report = deepMerge(report, jsonObj("print" to jsonObj("ams" to jsonObj("ams" to JsonArray(listOf(jsonObj("id" to "$amsId", *fields)))))))
-        onReport?.invoke()
-    }
 
     override suspend fun post(path: String, body: String): String {
         if (controlBlocked() && path.startsWith("/api/services/") && !path.endsWith("/update_entity")) throw ApiException(CONTROL_BLOCKED)
@@ -927,12 +956,10 @@ class DirectPrinter(
                 val temp = (d.s("temp")?.toIntOrNull() ?: 50).coerceIn(45, 85)
                 val dur = (d.s("duration")?.toIntOrNull() ?: 4).coerceIn(1, 24)
                 publish(amsDryingCommand(nextSeq(), amsId, temp, dur, d["rotate_tray"].flagValue() ?: (d.s("rotate_tray") != "false")))
-                updateAmsReport(amsId, "dry_time" to dur * 60, "is_drying" to true, "drying_status" to "drying", "dry_setting" to jsonObj("dry_temperature" to temp, "dry_duration" to dur))
             }
             "bambu_lab/stop_filament_drying" -> {
                 val amsId = d.s("ams_id")?.toIntOrNull() ?: 0
                 publish(amsStopDryingCommand(nextSeq(), amsId))
-                updateAmsReport(amsId, "dry_time" to 0, "is_drying" to false, "drying_status" to "idle", "_dry_status" to 0, "info" to "0")
             }
             "switch/turn_on", "switch/turn_off" -> {} // live view is always available directly
             "homeassistant/update_entity" -> publish(buildJsonObject { putJsonObject("pushing") { put("sequence_id", nextSeq()); put("command", "pushall") } })
@@ -976,18 +1003,7 @@ class DirectPrinter(
         }
         if (path.startsWith("/api/bambu_lab/file_cache/")) return cachedFile(path.removePrefix("/api/bambu_lab/file_cache/"))
         if (!path.startsWith("/api/camera_proxy/")) throw ApiException(NEEDS_HA)
-        if (rtspCamera(config.model)) {
-            val latestThumb = runCatching {
-                val inThumbDir = runCatching { storage.list("/timelapse/thumbnail") }.getOrDefault(emptyList())
-                val inTimelapseDir = runCatching { storage.list("/timelapse") }.getOrDefault(emptyList())
-                (inThumbDir.filter { !it.dir && it.name.endsWith(".jpg") }.map { "/timelapse/thumbnail/${it.name}" to it.modified } +
-                 inTimelapseDir.filter { !it.dir && it.name.endsWith(".jpg") }.map { "/timelapse/${it.name}" to it.modified })
-                    .maxByOrNull { it.second }
-                    ?.let { storage.read(it.first) }
-            }.getOrNull()
-            if (latestThumb != null) return latestThumb
-            throw ApiException("The camera uses RTSP video and has no snapshot")
-        }
+        if (rtspCamera(config.model)) throw ApiException("The camera uses RTSP video and has no snapshot")
         lastAsked = Clock.System.now().toEpochMilliseconds()
         if (camJob?.isActive != true) camJob = scope.launch {
             val job = coroutineContext[Job]!!

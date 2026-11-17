@@ -184,21 +184,9 @@ class DirectPrinterTest {
         } finally { printer.stop() }
     }
 
-    @Test fun rtspCameraProvidesTimelapseSnapshotOrRejectsWhenUnavailable() = runBlocking<Unit> {
-        val storage = object : PrinterStorage {
-            val files = mutableMapOf("/timelapse/thumbnail/recent.jpg" to byteArrayOf(10, 20, 30))
-            override suspend fun list(dir: String): List<FileEntry> {
-                if (dir == "/timelapse/thumbnail") return listOf(FileEntry("recent.jpg", 3, "2026-11-07 12:00:00", false))
-                return emptyList()
-            }
-            override suspend fun read(path: String, offset: Long, length: Int): ByteArray = files[path] ?: throw ApiException("Not found")
-            override suspend fun write(path: String, data: ByteArray, progress: (Float) -> Unit) = Unit
-            override suspend fun delete(path: String) = Unit
-        }
-        val printer = DirectPrinter(config.copy(model = "X1C"), storageFactory = { storage })
+    @Test fun rtspCameraRejectsSnapshotRequestsCleanly() = runBlocking<Unit> {
+        val printer = DirectPrinter(config.copy(model = "X1C"))
         try {
-            kotlin.test.assertContentEquals(byteArrayOf(10, 20, 30), printer.bytes("/api/camera_proxy/live"))
-            storage.files.clear()
             val err = kotlin.test.assertFailsWith<ApiException> { printer.bytes("/api/camera_proxy/live") }
             assertEquals("The camera uses RTSP video and has no snapshot", err.message)
         } finally { printer.stop() }

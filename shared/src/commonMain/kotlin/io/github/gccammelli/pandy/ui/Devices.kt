@@ -501,14 +501,15 @@ fun AmsHeaderRow(p: Printer, a: AmsInfo, detail: Boolean = false) = Row(vertical
 private fun FilamentCard(p: Printer, onClick: () -> Unit) = Card(padding = androidx.compose.foundation.layout.PaddingValues(14.dp), onClick = onClick) {
     val visibleExt = p.visibleExternalSpools()
     if (p.ams.isEmpty() && visibleExt.isEmpty()) { T("No AMS or external spool in Home Assistant", 13.sp, C.Sub); return@Card }
-    p.ams.forEach { (a, trays) ->
+    p.ams.forEachIndexed { idx, (a, trays) ->
+        if (idx > 0) Gap(12.dp)
         AmsHeaderRow(p, a, detail = false)
         Gap(8.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             trays.forEachIndexed { i, s -> SlotTile(s, a.slotLabel(i), Modifier.weight(1f)) }
         }
-        if (visibleExt.isNotEmpty()) Gap(12.dp)
     }
+    if (p.ams.isNotEmpty() && visibleExt.isNotEmpty()) Gap(12.dp)
     visibleExt.forEachIndexed { rowIdx, entry ->
         val (i, s) = entry
         if (rowIdx > 0) Gap(8.dp)

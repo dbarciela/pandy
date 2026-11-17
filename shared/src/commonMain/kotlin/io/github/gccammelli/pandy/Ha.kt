@@ -378,6 +378,7 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     val layer get() = num("sensor.current_layer")?.toInt()
     val layers get() = num("sensor.total_layers")?.toInt()
     val task get() = state("sensor.subtask_name")
+    val gcodeFile get() = state("sensor.gcode_file")
     val stage get() = state("sensor.stage")
     val printWeight: Double? get() = (num("sensor.print_weight") ?: num("sensor.weight"))?.takeIf { it > 0 } ?: get("sensor.printable_objects")?.attrs?.s("weight_g")?.toDoubleOrNull()
     val printLength: Double? get() = (num("sensor.print_length") ?: num("sensor.length"))?.takeIf { it > 0 } ?: get("sensor.printable_objects")?.attrs?.s("length_m")?.toDoubleOrNull()
@@ -410,10 +411,10 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     val hasChamberHeater get() = info.ids.containsKey("number.target_chamber_temperature")
     val doorOpen get() = get("binary_sensor.door_open")?.on
     val camera get() = info.ids["camera.camera"]
-    val coverImage get() = (get("image.cover_image") ?: get("image.image"))?.takeIf { it.state != "unavailable" && it.state != "unknown" && it.state.isNotBlank() }?.let {
+    val coverImage get() = (get("image.cover_image") ?: get("image.image"))?.takeIf { it.ok && it.state.isNotBlank() }?.let {
         it.attrs.s("entity_picture") ?: "/api/image_proxy/${it.id}?v=${it.state}"
     }
-    val pickImage get() = (get("image.pick_image") ?: get("image.image"))?.takeIf { it.state != "unavailable" && it.state != "unknown" && it.state.isNotBlank() }?.let {
+    val pickImage get() = get("image.pick_image")?.takeIf { it.ok && it.state.isNotBlank() }?.let {
         it.attrs.s("entity_picture") ?: "/api/image_proxy/${it.id}?v=${it.state}"
     }
     /** Objects on the plate: id → name (for Skip Parts). */
@@ -763,6 +764,12 @@ fun Printer.activeSpool(): Pair<String, Spool>? {
     }
     return null
 }
+
+/** The active plate index parsed from [Printer.gcodeFile] or [Printer.task], or null when unknown. */
+fun Printer.activePlate(): Int? =
+    listOfNotNull(gcodeFile, task).firstNotNullOfOrNull { s ->
+        Regex("""plate[_\s](\d+)""", RegexOption.IGNORE_CASE).find(s)?.groupValues?.get(1)?.toIntOrNull()
+    }
 
 /** The loaded spools with their absolute tray IDs (254 and 255 for external spools), in AMS order. */
 fun Printer.loadedSpools(): List<Pair<Int, Spool>> =

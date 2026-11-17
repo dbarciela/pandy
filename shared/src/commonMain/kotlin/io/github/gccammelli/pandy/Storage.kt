@@ -110,9 +110,13 @@ data class SlicePlateInfo(
     val filaments: List<Map<String, String>> = emptyList()
 )
 
-fun slicePlateInfo(xml: String, plate: Int): SlicePlateInfo {
+fun slicePlateInfo(xml: String, plate: Int? = 1): SlicePlateInfo {
     val plates = xml.split("<plate>").drop(1)
-    val p = plates.firstOrNull { Regex("""key="index"\s+value="$plate"""").containsMatchIn(it) } ?: plates.firstOrNull() ?: return SlicePlateInfo()
+    val p = when {
+        plate != null -> plates.firstOrNull { Regex("""key="index"\s+value="$plate"""").containsMatchIn(it) } ?: plates.firstOrNull()
+        plates.size == 1 -> plates.first()
+        else -> null
+    } ?: return SlicePlateInfo()
     val meta = Regex("""<metadata\s+([^>]*)/?>""").findAll(p).mapNotNull { m ->
         val a = Regex("""(\w+)="([^"]*)"""").findAll(m.groupValues[1]).associate { it.groupValues[1] to it.groupValues[2] }
         val k = a["key"] ?: return@mapNotNull null

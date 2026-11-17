@@ -656,12 +656,20 @@ class LanBoundaryTest {
         assertFalse(a1Printer.isEnclosed)
 
         // deepMerge preserves existing fields of AMS units by id across partial reports
-        val firstReport = obj("""{"print":{"ams":{"ams":[{"id":"0","dry_setting":{"dry_temperature":55,"dry_duration":6},"tray":[{"id":0,"tray_type":"PLA"}]}]}}}""")
+        val firstReport = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","dry_setting":{"dry_temperature":55,"dry_duration":6},"tray":[{"id":0,"tray_type":"PLA"}]}]}}}""")
         val deltaReport = obj("""{"print":{"ams":{"ams":[{"id":"0","dry_time":180,"info":"0x10"}]}}}""")
         val merged = deepMerge(firstReport, deltaReport)
         val mergedEntities = lanEntities(config, merged, true).filter { it.first.device == "ams0" }.associate { it.first.key to it.second }
         assertEquals("on", mergedEntities.getValue("drying").state)
         assertEquals("3.0", mergedEntities.getValue("remaining_drying_time").state)
         assertEquals("55.0", mergedEntities.getValue("drying_target_temp").state)
+
+        // Full status reports drop unplugged AMS units; silent AMS 2 Pro reports omit binary_sensor.drying
+        val twoUnits = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","tray":[]},{"id":"1","model":"AMS","tray":[]}]}}}""")
+        val oneUnitFull = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","tray":[]}]}}}""")
+        val afterUnplug = deepMerge(twoUnits, oneUnitFull)
+        val afterUnplugEntities = lanEntities(config, afterUnplug, true)
+        assertFalse(afterUnplugEntities.any { it.first.device == "ams1" })
+        assertFalse(afterUnplugEntities.any { it.first.device == "ams0" && it.first.key == "drying" })
     }
 }

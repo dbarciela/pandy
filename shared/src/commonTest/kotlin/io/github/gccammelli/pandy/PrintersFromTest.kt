@@ -160,4 +160,12 @@ class PrintersFromTest {
         assertEquals("sensor.length", printer.ids["sensor.print_length"])
         assertEquals("image.cover", printer.ids["image.cover_image"])
     }
+
+    @Test fun pickImageDoesNotFallBackToGenericCoverImage() {
+        val info = PrinterInfo("p", "SN", "X1C", "X1C", null, mapOf("image.image" to "img.cover"), emptyList(), emptyList())
+        val states = mapOf("img.cover" to Entity("img.cover", "2026-11-17T00:00:00", JsonObject(emptyMap())))
+        val p = Printer(info, states)
+        assertEquals("/api/image_proxy/img.cover?v=2026-11-17T00:00:00", p.coverImage)
+        assertNull(p.pickImage)
+    }
 }
