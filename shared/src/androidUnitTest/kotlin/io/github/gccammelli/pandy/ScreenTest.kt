@@ -2884,6 +2884,13 @@ class ScreenTest {
         compose.onAllNodesWithText("External Spool 2 (Right / Aux)").onFirst().assertExists()
     }
 
+    @Test fun historyScreenShareButtonWorks() {
+        show("History") { HistoryScreen(printer) }
+        compose.waitUntil(5000) { compose.waitForIdle(); compose.onAllNodesWithContentDescription("Share").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithContentDescription("Share").onFirst().performClick()
+        compose.waitForIdle()
+    }
+
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
         show("Direct LAN connection") { AddDirectScreen() }
         compose.onNodeWithText("Connect",substring=false).assertIsNotEnabled()
