@@ -165,12 +165,7 @@ fun JobDetailsScreen(p: Printer) {
 
     var meshLoading by remember { mutableStateOf(false) }
     val lazyMesh by produceState<PreviewMesh?>(p.mesh, show3d, p.task, extraJobData?.modelPath) {
-        if (!show3d) {
-            value = p.mesh
-            meshLoading = false
-            return@produceState
-        }
-        if (p.mesh != null) {
+        if (!show3d || p.mesh != null) {
             value = p.mesh
             meshLoading = false
             return@produceState

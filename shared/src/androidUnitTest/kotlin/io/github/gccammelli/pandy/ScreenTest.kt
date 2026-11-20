@@ -3015,9 +3015,18 @@ class ScreenTest {
             val paused = variant(set = arrayOf(
                 "sensor.print_status" to entity("pause"),
                 "sensor.print_progress" to entity("50"),
+                "sensor.remaining_time" to entity("0"),
                 "sensor.print_weight" to entity("100.0"),
                 "sensor.print_length" to entity("30.0"),
+                "sensor.printable_objects" to Entity("sensor.printable_objects", "2", kotlinx.serialization.json.buildJsonObject {
+                    put("objects", kotlinx.serialization.json.buildJsonObject {
+                        put("1", kotlinx.serialization.json.JsonPrimitive("Part A"))
+                        put("2", kotlinx.serialization.json.JsonPrimitive("Part B"))
+                    })
+                }),
             ))
+            val shareWithCost = buildPrintShareText(paused)
+            assertTrue(shareWithCost.contains("Estimated Cost"))
             val current = androidx.compose.runtime.mutableStateOf(paused)
             compose.setContent {
                 CompositionLocalProvider(LocalPlatform provides platform) {
@@ -3025,14 +3034,25 @@ class ScreenTest {
                 }
             }
             compose.waitForIdle()
+            compose.onNodeWithText("Paused").assertExists()
             compose.onNodeWithText("Estimated Cost (25.0 $/kg)").assertExists()
             compose.onNodeWithText("1.25", substring = true).assertExists()
             compose.onNodeWithText("Silent\n50%").assertExists().performClick()
+            compose.onNodeWithText("Skip Parts").assertExists().performClick()
             compose.onNodeWithText("Resume").assertExists().performClick()
             compose.onNodeWithText("Stop").assertExists().performClick()
             compose.waitForIdle()
             compose.onNodeWithText("Stop printing?").assertExists()
             compose.onAllNodesWithText("Stop").onLast().performClick()
+            compose.waitForIdle()
+
+            val running = variant(set = arrayOf(
+                "sensor.print_status" to entity("running"),
+                "sensor.print_progress" to entity("40"),
+            ))
+            compose.runOnIdle { current.value = running }
+            compose.waitForIdle()
+            compose.onNodeWithText("Pause").assertExists().performClick()
             compose.waitForIdle()
 
             val noMedia = Printer(
