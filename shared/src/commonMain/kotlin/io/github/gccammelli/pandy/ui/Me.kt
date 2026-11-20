@@ -133,19 +133,28 @@ fun HistoryScreen(p: Printer) {
                 else androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(list.size, key = { list[it].path }) { i ->
                         val item = list[i]
-                        HistoryRow(item, onShare = {
-                            scope.launch {
-                                val bytes = item.thumbUrl?.let { runCatching { Repo.ha?.bytes(it) }.getOrNull() }
-                                val text = "Print from ${p.name.ifBlank { p.model }}:\n• ${item.title}\n• Date: ${item.modified.take(16).replace('T', ' ')}"
-                                pl.share(text, bytes, item.title)
-                            }
-                        }) { open = item }
+                        HistoryRow(item, onShare = { shareHistoryItem(scope, pl, p, item) }) { open = item }
                     }
                 }
             }, { e -> if (Repo.extras == null) NeedsHa("Printing history") else Empty(e.message ?: "Couldn't load the history") })
         }
     }
     open?.let { f -> ReprintSheet(p, f) { open = null } }
+}
+
+private fun shareHistoryItem(
+    scope: kotlinx.coroutines.CoroutineScope,
+    pl: io.github.gccammelli.pandy.PlatformUi,
+    p: Printer,
+    f: CachedFile,
+    plate: Int? = null
+) {
+    scope.launch {
+        val bytes = f.thumbUrl?.let { url -> runCatching { Repo.ha?.bytes(url) }.getOrNull() }
+        val plateLine = if (plate != null) "\n• Plate $plate" else ""
+        val text = "Print from ${p.name}:\n• ${f.title}$plateLine\n• Date: ${f.modified.take(16).replace('T', ' ')}"
+        pl.share(text, bytes, f.title)
+    }
 }
 
 @Composable
@@ -204,11 +213,7 @@ fun ReprintSheet(p: Printer, f: CachedFile, close: () -> Unit) {
             val pl = LocalPlatform.current
             val scope = rememberCoroutineScope()
             Box(Modifier.size(40.dp).clip(CircleShape).clickable {
-                scope.launch {
-                    val bytes = f.thumbUrl?.let { runCatching { Repo.ha?.bytes(it) }.getOrNull() }
-                    val text = "Print from ${p.name.ifBlank { p.model }}:\n• ${f.title}\n• Plate ${info?.plate ?: 1}\n• Date: ${f.modified.take(16).replace('T', ' ')}"
-                    pl.share(text, bytes, f.title)
-                }
+                shareHistoryItem(scope, pl, p, f, plate = info?.plate ?: 1)
             }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Share, "Share", tint = C.Text, modifier = Modifier.size(20.dp))
             }
