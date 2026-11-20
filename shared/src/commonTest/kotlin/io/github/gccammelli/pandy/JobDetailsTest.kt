@@ -128,4 +128,11 @@ class JobDetailsTest {
         assertNull(Printer(pInfo, mapOf("ext1" to extInactive)).activeSpool())
         assertEquals("Ext", Printer(pInfo, mapOf("ext1" to extActive)).activeSpool()?.first)
     }
+
+    @Test
+    fun shareTextHandlesIdleAndMissingMetricsCleanly() {
+        val idle = printer(status = "idle", progress = 0, remainingMinutes = null, weight = null, length = null)
+        val text = buildPrintShareText(idle)
+        assertEquals("Print on My X1C: Panda Figurine", text)
+    }
 }

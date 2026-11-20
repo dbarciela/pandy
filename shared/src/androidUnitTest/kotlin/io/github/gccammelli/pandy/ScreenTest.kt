@@ -3017,17 +3017,25 @@ class ScreenTest {
             compose.waitForIdle()
             compose.onNodeWithText("Estimated Cost (25.0 $/kg)").assertExists()
             compose.onNodeWithText("1.25", substring = true).assertExists()
+            compose.onNodeWithText("Silent\n50%").assertExists().performClick()
             compose.onNodeWithText("Resume").assertExists().performClick()
+            compose.onNodeWithText("Stop").assertExists().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Stop printing?").assertExists()
+            compose.onAllNodesWithText("Stop").onLast().performClick()
             compose.waitForIdle()
 
-            val noMedia = variant(set = arrayOf(
-                "sensor.print_status" to entity("finish"),
-                "sensor.print_progress" to entity("100"),
-                "image.cover_image" to Entity("image.cover_image", "unavailable", kotlinx.serialization.json.JsonObject(emptyMap())),
-            ))
+            val noMedia = Printer(
+                PrinterInfo("p_nomedia", "SN_NOMEDIA", "X1C", "X1C", null, mapOf("sensor.print_status" to "s", "sensor.print_progress" to "p"), emptyList(), emptyList()),
+                mapOf("s" to entity("finish"), "p" to entity("100"))
+            )
             compose.runOnIdle { current.value = noMedia }
-            compose.waitForIdle()
-            compose.onNodeWithText("Material & Cost").assertExists()
+            compose.waitUntil(5000) {
+                compose.waitForIdle()
+                compose.onAllNodesWithText("3D preview not included in print file").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Not specified in print file").assertExists()
+            compose.onNodeWithText("Completed").assertExists()
         } finally {
             Repo.setFilamentPricePerKg(null)
             Repo.setFilamentCurrency(null)
