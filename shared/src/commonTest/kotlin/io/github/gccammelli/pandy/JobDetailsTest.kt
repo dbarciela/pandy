@@ -90,5 +90,42 @@ class JobDetailsTest {
         val multiPlateXml = """<config><plate><metadata key="index" value="1"/><metadata key="weight" value="12.5"/></plate><plate><metadata key="index" value="2"/><metadata key="weight" value="25.0"/></plate></config>"""
         assertNull(slicePlateInfo(multiPlateXml, null).weightGrams)
         assertEquals(25.0, slicePlateInfo(multiPlateXml, 2).weightGrams)
+
+        val filamentFallbackXml = """<config><plate><metadata key="index" value="1"/><object identify_id="1" name="Body"/><filament id="1" type="PLA" color="#FFFFFF" used_g="18.5" used_m="6.1"/></plate></config>"""
+        val info = slicePlateInfo(filamentFallbackXml, 1)
+        assertEquals(mapOf(1 to "Body"), info.objects)
+        assertEquals(18.5, info.weightGrams)
+        assertEquals(6.1, info.lengthMeters)
+    }
+
+    @Test
+    fun activeSpoolFindsAmsOrExternalActiveSpool() {
+        val amsInfo = AmsInfo("ams1", 1, "AMS 2 Pro", mapOf("sensor.tray_1" to "t1"), mapOf(1 to "t1"))
+        val amsSpool = Spool("t1", 1, "Bambu PLA", "PLA", 0xFFFFFFFFL, emptyList(), 80, active = true, empty = false, nozzleMin = 190, nozzleMax = 230, filamentId = "GFA00")
+        val amsTray = Entity("t1", "Bambu PLA", kotlinx.serialization.json.buildJsonObject {
+            put("type", kotlinx.serialization.json.JsonPrimitive("PLA"))
+            put("name", kotlinx.serialization.json.JsonPrimitive("Bambu PLA"))
+            put("color", kotlinx.serialization.json.JsonPrimitive("#FFFFFFFF"))
+            put("active", kotlinx.serialization.json.JsonPrimitive("true"))
+            put("empty", kotlinx.serialization.json.JsonPrimitive("false"))
+        })
+        val pInfo = PrinterInfo("p1", "SN123", "My X1C", "X1C", null, ids, listOf(amsInfo), listOf("ext1"))
+        val pWithAms = Printer(pInfo, mapOf("t1" to amsTray))
+        assertEquals("A1", pWithAms.activeSpool()?.first)
+        assertEquals(amsSpool.type, pWithAms.activeSpool()?.second?.type)
+
+        val extInactive = Entity("ext1", "Empty", kotlinx.serialization.json.buildJsonObject {
+            put("type", kotlinx.serialization.json.JsonPrimitive(""))
+            put("empty", kotlinx.serialization.json.JsonPrimitive("true"))
+            put("active", kotlinx.serialization.json.JsonPrimitive("false"))
+        })
+        val extActive = Entity("ext1", "PETG", kotlinx.serialization.json.buildJsonObject {
+            put("type", kotlinx.serialization.json.JsonPrimitive("PETG"))
+            put("name", kotlinx.serialization.json.JsonPrimitive("PETG"))
+            put("active", kotlinx.serialization.json.JsonPrimitive("true"))
+            put("empty", kotlinx.serialization.json.JsonPrimitive("false"))
+        })
+        assertNull(Printer(pInfo, mapOf("ext1" to extInactive)).activeSpool())
+        assertEquals("Ext", Printer(pInfo, mapOf("ext1" to extActive)).activeSpool()?.first)
     }
 }

@@ -2960,10 +2960,77 @@ class ScreenTest {
             compose.onNodeWithText("Filament cost").assertExists().performClick()
             compose.waitForIdle()
             compose.onNodeWithText("Default filament cost").assertExists()
+            compose.onNodeWithText("Price per kg").performTextReplacement("28.5")
+            compose.onNodeWithText("Currency symbol (e.g. €, $, £)").performTextReplacement("$")
+            compose.onNodeWithText("Save").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("28.5 $/kg").assertExists().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Clear default cost").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Not set").assertExists()
         } finally {
             Repo.setFilamentPricePerKg(null)
             Repo.setFilamentCurrency(null)
             Repo.setSpoolPricePerKg(spool.entityId, null)
+        }
+    }
+
+    @Test fun filamentScreenSpoolPriceCanBeSetAndCleared() {
+        try {
+            show("Filament") { FilamentScreen(printer) }
+            compose.onAllNodesWithText("A1").onFirst().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Set filament price").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Price per kg (€)").performTextReplacement("34.5")
+            compose.onNodeWithText("Save").performClick()
+            compose.waitForIdle()
+            compose.onAllNodesWithText("A1").onFirst().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("34.5 €/kg").assertExists()
+            compose.onNodeWithText("Set filament price").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Clear price").performClick()
+            compose.waitForIdle()
+        } finally {
+            printer.ams.firstOrNull()?.second?.firstOrNull()?.entityId?.let { Repo.setSpoolPricePerKg(it, null) }
+        }
+    }
+
+    @Test fun jobDetailsCoversCostPausedAndPreviewFallbacks() {
+        try {
+            Repo.setFilamentPricePerKg(25.0)
+            Repo.setFilamentCurrency("$")
+            val paused = variant(set = arrayOf(
+                "sensor.print_status" to entity("pause"),
+                "sensor.print_progress" to entity("50"),
+                "sensor.print_weight" to entity("100.0"),
+                "sensor.print_length" to entity("30.0"),
+            ))
+            val current = androidx.compose.runtime.mutableStateOf(paused)
+            compose.setContent {
+                CompositionLocalProvider(LocalPlatform provides platform) {
+                    AppTheme { JobDetailsScreen(current.value) }
+                }
+            }
+            compose.waitForIdle()
+            compose.onNodeWithText("Estimated Cost (25.0 $/kg)").assertExists()
+            compose.onNodeWithText("1.25", substring = true).assertExists()
+            compose.onNodeWithText("Resume").assertExists().performClick()
+            compose.waitForIdle()
+
+            val noMedia = variant(set = arrayOf(
+                "sensor.print_status" to entity("finish"),
+                "sensor.print_progress" to entity("100"),
+                "image.cover_image" to Entity("image.cover_image", "unavailable", kotlinx.serialization.json.JsonObject(emptyMap())),
+            ))
+            compose.runOnIdle { current.value = noMedia }
+            compose.waitForIdle()
+            compose.onNodeWithText("Material & Cost").assertExists()
+        } finally {
+            Repo.setFilamentPricePerKg(null)
+            Repo.setFilamentCurrency(null)
         }
     }
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
