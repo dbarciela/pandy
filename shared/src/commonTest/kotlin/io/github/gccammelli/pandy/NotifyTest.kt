@@ -142,5 +142,19 @@ class NotifyTest {
         val evNoCam = printEvent(runningNoCam, finishedNoCam)!!
         assertEquals("/api/image_proxy/cov?v=v1", evNoCam.imagePath)
         assertNull(evNoCam.fallbackImagePath)
+
+        // Failed & attention events also prefer camera with cover fallback
+        val failedWithCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()),
+            withCamStates + ("s" to Entity("s", "failed", JsonObject(emptyMap()))))
+        val evFailedCam = printEvent(runningWithCam, failedWithCam)!!
+        assertEquals("/api/camera_proxy/cam", evFailedCam.imagePath)
+        assertEquals("/api/image_proxy/cov?v=v1", evFailedCam.fallbackImagePath)
+
+        val hmsAttrs = json.parseToJsonElement("""{"Count":"1","1-Code":"HMS_0300_0100_0002_0007","1-Error":"Problem 1"}""") as JsonObject
+        val attWithCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()),
+            withCamStates + ("s" to Entity("s", "pause", JsonObject(emptyMap()))) + ("h" to Entity("h", "on", hmsAttrs)))
+        val evAttCam = printEvent(runningWithCam, attWithCam)!!
+        assertEquals("/api/camera_proxy/cam", evAttCam.imagePath)
+        assertEquals("/api/image_proxy/cov?v=v1", evAttCam.fallbackImagePath)
     }
 }

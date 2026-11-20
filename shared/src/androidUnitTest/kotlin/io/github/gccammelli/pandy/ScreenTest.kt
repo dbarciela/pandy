@@ -2885,9 +2885,15 @@ class ScreenTest {
     }
 
     @Test fun historyScreenShareButtonWorks() {
+        platform.share("Default share call")
         show("History") { HistoryScreen(printer) }
         compose.waitUntil(5000) { compose.waitForIdle(); compose.onAllNodesWithContentDescription("Share").fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithContentDescription("Share").onFirst().performClick()
+        compose.waitForIdle()
+        // Also open ReprintSheet and trigger its Share button
+        compose.onAllNodesWithText("Articulated Panda Keychain").onFirst().performClick()
+        compose.waitForIdle()
+        compose.onAllNodesWithContentDescription("Share").onLast().performClick()
         compose.waitForIdle()
     }
 
