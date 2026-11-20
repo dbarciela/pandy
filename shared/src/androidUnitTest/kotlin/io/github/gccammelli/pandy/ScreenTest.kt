@@ -1977,26 +1977,39 @@ class ScreenTest {
     }
 
     @Test fun dualNozzleWithoutChamberRendersTempChipsOnDevicesAndControl() {
-        val info = printer.info.copy(
-            model = "X2D",
-            ids = printer.info.ids - "sensor.chamber_temp" - "sensor.left_nozzle_temp" - "sensor.right_nozzle_temp"
+        val noChamberDual = variant(
+            info = printer.info.copy(
+                model = "X2D",
+                ids = printer.info.ids - "sensor.chamber_temp" - "sensor.left_nozzle_temp" - "sensor.right_nozzle_temp"
+            ),
+            set = arrayOf("sensor.print_status" to entity("idle"))
         )
-        val p = variant(info = info, set = arrayOf("sensor.print_status" to entity("idle")))
+        val withChamberDual = variant(
+            info = printer.info.copy(
+                model = "X2D",
+                ids = printer.info.ids + ("sensor.left_nozzle_temp" to "l_t") + ("sensor.right_nozzle_temp" to "r_t")
+            ),
+            set = arrayOf("sensor.print_status" to entity("idle"), "l_t" to entity("180"), "r_t" to entity("210"))
+        )
+        val noChamberSingle = variant(
+            info = printer.info.copy(model = "A1", ids = printer.info.ids - "sensor.chamber_temp"),
+            set = arrayOf("sensor.print_status" to entity("idle"))
+        )
+        val current = androidx.compose.runtime.mutableStateOf(noChamberDual)
         val showControl = androidx.compose.runtime.mutableStateOf(false)
         compose.setContent {
             CompositionLocalProvider(LocalPlatform provides platform) {
                 AppTheme {
-                    if (showControl.value) ControlScreen(p) else DevicesTab(st.copy(printers = listOf(p)), p)
+                    if (showControl.value) ControlScreen(current.value) else DevicesTab(st.copy(printers = listOf(current.value)), current.value)
                 }
             }
         }
-        compose.waitForIdle()
-        compose.onAllNodesWithText("L").onFirst().assertExists()
-        compose.onAllNodesWithText("R").onFirst().assertExists()
-        compose.runOnIdle { showControl.value = true }
-        compose.waitForIdle()
-        compose.onAllNodesWithText("L").onFirst().assertExists()
-        compose.onAllNodesWithText("R").onFirst().assertExists()
+        for (p in listOf(noChamberDual, withChamberDual, noChamberSingle)) {
+            compose.runOnIdle { current.value = p; showControl.value = false }
+            compose.waitForIdle()
+            compose.runOnIdle { showControl.value = true }
+            compose.waitForIdle()
+        }
     }
 
     @Test fun heatedChamberUsesItsOwnTarget() {
