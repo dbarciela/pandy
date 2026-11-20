@@ -613,5 +613,60 @@ class LanBoundaryTest {
         val afterUnplugEntities = lanEntities(config, afterUnplug, true)
         assertFalse(afterUnplugEntities.any { it.first.device == "ams1" })
         assertFalse(afterUnplugEntities.any { it.first.device == "ams0" && it.first.key == "drying" })
+
+        // Cover deepMerge edge cases (non-id entries, new unit in full/delta reports)
+        val badArray = obj("""{"print":{"ams":{"ams":["raw"]}}}""")
+        assertEquals(badArray, deepMerge(twoUnits, badArray))
+        val noIdArray = obj("""{"print":{"ams":{"ams":[{"tray":[]}]}}}""")
+        assertEquals(noIdArray, deepMerge(twoUnits, noIdArray))
+        val fullWithNew = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","tray":[]},{"id":"2","model":"AMS","tray":[]}]}}}""")
+        val mergedFullNew = deepMerge(oneUnitFull, fullWithNew)
+        assertEquals(2, mergedFullNew.o("print")!!.o("ams")!!.objects("ams").size)
+        val deltaNew = obj("""{"print":{"ams":{"ams":[{"id":"2","temp":30.0}]}}}""")
+        val mergedDeltaNew = deepMerge(oneUnitFull, deltaNew)
+        assertEquals(2, mergedDeltaNew.o("print")!!.o("ams")!!.objects("ams").size)
+
+        // Cover drying telemetry fallbacks (idle, _dry_status, dry_status, remain_time, target_temp, drying_temp)
+        val idleDrying = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","is_drying":false,"dry_time":0,"dry_setting":{"dry_temperature":0},"tray":[]}]}}}""")
+        val idleEnt = lanEntities(config, idleDrying, true).filter { it.first.device == "ams0" }.associate { it.first.key to it.second }
+        assertEquals("off", idleEnt.getValue("drying").state)
+        assertEquals("0.0", idleEnt.getValue("remaining_drying_time").state)
+        assertEquals("0.0", idleEnt.getValue("drying_target_temp").state)
+
+        val fallbackDrying = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","dry_status":2,"remain_time":90,"drying_temp":60,"tray":[]}]}}}""")
+        val fbEnt = lanEntities(config, fallbackDrying, true).filter { it.first.device == "ams0" }.associate { it.first.key to it.second }
+        assertEquals("on", fbEnt.getValue("drying").state)
+        assertEquals("1.5", fbEnt.getValue("remaining_drying_time").state)
+        assertEquals("60.0", fbEnt.getValue("drying_target_temp").state)
+
+        val settingDurDrying = obj("""{"print":{"ams":{"ams":[{"id":"0","model":"AMS 2 Pro","drying_status":"drying","dry_setting":{"dry_duration":4},"target_temp":50,"tray":[]}]}}}""")
+        val sdEnt = lanEntities(config, settingDurDrying, true).filter { it.first.device == "ams0" }.associate { it.first.key to it.second }
+        assertEquals("on", sdEnt.getValue("drying").state)
+        assertEquals("4.0", sdEnt.getValue("remaining_drying_time").state)
+        assertEquals("50.0", sdEnt.getValue("drying_target_temp").state)
+
+        // Cover Ha.kt helpers: dryingDurationText, amsSlot, spoolForTrayId, externalBadge, externalTitle
+        assertEquals("1h 30m", dryingDurationText(1.5))
+        assertEquals("0h 45m", dryingDurationText(0.75))
+        val amsInfo = AmsInfo("a1", 1, "AMS 2 Pro", emptyMap(), mapOf(1 to "t1"))
+        val t1 = Entity("t1", "PLA", jsonObj("type" to "PLA", "name" to "Bambu PLA", "empty" to "false"))
+        val e1 = Entity("e1", "PETG", jsonObj("type" to "PETG", "name" to "PETG", "empty" to "false"))
+        val e2 = Entity("e2", "ABS", jsonObj("type" to "ABS", "name" to "ABS", "empty" to "false"))
+        val pDualExt = Printer(PrinterInfo("p", "S", "X2D", "X2D", null, emptyMap(), listOf(amsInfo), listOf("e1", "e2")), mapOf("t1" to t1, "e1" to e1, "e2" to e2))
+        assertNull(pDualExt.amsSlot(-1))
+        assertNull(pDualExt.amsSlot(99))
+        assertEquals("PLA", pDualExt.amsSlot(0)?.second?.type)
+        assertEquals("PETG", pDualExt.spoolForTrayId(254)?.type)
+        assertEquals("ABS", pDualExt.spoolForTrayId(255)?.type)
+        assertEquals("PLA", pDualExt.spoolForTrayId(0)?.type)
+        assertEquals("Ext 1", pDualExt.externalBadge(0))
+        assertEquals("Ext 2", pDualExt.externalBadge(1))
+        assertEquals("External Spool 1 (Left / Main)", pDualExt.externalTitle(0))
+        assertEquals("External Spool 2 (Right / Aux)", pDualExt.externalTitle(1))
+
+        val pSingleExt = Printer(PrinterInfo("p", "S", "X1C", "X1C", null, emptyMap(), emptyList(), listOf("e1")), mapOf("e1" to e1))
+        assertEquals("PETG", pSingleExt.spoolForTrayId(255)?.type)
+        assertEquals("Ext", pSingleExt.externalBadge(0))
+        assertEquals("External Spool", pSingleExt.externalTitle(0))
     }
 }
