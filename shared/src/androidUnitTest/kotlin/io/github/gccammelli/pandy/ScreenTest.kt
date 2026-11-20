@@ -1977,12 +1977,19 @@ class ScreenTest {
     }
 
     @Test fun dualNozzleWithoutChamberRendersTempChipsOnDevicesAndControl() {
-        val noChamberDual = variant(
+        val noChamberDualRight = variant(
             info = printer.info.copy(
                 model = "X2D",
-                ids = printer.info.ids - "sensor.chamber_temp" - "sensor.left_nozzle_temp" - "sensor.right_nozzle_temp"
+                ids = printer.info.ids - "sensor.chamber_temp" - "sensor.left_nozzle_temp" - "sensor.right_nozzle_temp" + ("sensor.active_nozzle" to "act_n")
             ),
-            set = arrayOf("sensor.print_status" to entity("idle"))
+            set = arrayOf("sensor.print_status" to entity("idle"), "act_n" to entity("right"))
+        )
+        val noChamberDualLeft = variant(
+            info = printer.info.copy(
+                model = "X2D",
+                ids = printer.info.ids - "sensor.chamber_temp" - "sensor.left_nozzle_temp" - "sensor.right_nozzle_temp" + ("sensor.active_nozzle" to "act_n")
+            ),
+            set = arrayOf("sensor.print_status" to entity("idle"), "act_n" to entity("left"))
         )
         val withChamberDual = variant(
             info = printer.info.copy(
@@ -1995,7 +2002,7 @@ class ScreenTest {
             info = printer.info.copy(model = "A1", ids = printer.info.ids - "sensor.chamber_temp"),
             set = arrayOf("sensor.print_status" to entity("idle"))
         )
-        val current = androidx.compose.runtime.mutableStateOf(noChamberDual)
+        val current = androidx.compose.runtime.mutableStateOf(noChamberDualRight)
         val showControl = androidx.compose.runtime.mutableStateOf(false)
         compose.setContent {
             CompositionLocalProvider(LocalPlatform provides platform) {
@@ -2004,7 +2011,7 @@ class ScreenTest {
                 }
             }
         }
-        for (p in listOf(noChamberDual, withChamberDual, noChamberSingle)) {
+        for (p in listOf(noChamberDualRight, noChamberDualLeft, withChamberDual, noChamberSingle)) {
             compose.runOnIdle { current.value = p; showControl.value = false }
             compose.waitForIdle()
             compose.runOnIdle { showControl.value = true }
