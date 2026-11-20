@@ -2884,6 +2884,44 @@ class ScreenTest {
         compose.onAllNodesWithText("External Spool 2 (Right / Aux)").onFirst().assertExists()
     }
 
+    @Test fun amsDryingSheetAndHeaderRowCoverAllTelemetryStates() {
+        val ams = AmsInfo("a1", 1, "AMS 2 Pro", mapOf(
+            "binary_sensor.drying" to "d_on",
+            "sensor.remaining_drying_time" to "d_rem",
+            "sensor.drying_target_temp" to "d_tgt",
+            "sensor.ams_temp" to "d_temp",
+            "sensor.humidity_index" to "d_hi",
+            "sensor.humidity" to "d_h",
+        ), mapOf(1 to "t1"))
+        val pUnknown = variant(info = printer.info.copy(ams = listOf(ams)), set = arrayOf("d_on" to entity("unknown")))
+        val pActiveNoRem = variant(info = printer.info.copy(ams = listOf(ams)), set = arrayOf("d_on" to entity("on"), "d_rem" to entity("0.0"), "d_tgt" to entity("unknown"), "d_temp" to entity("unknown")))
+        val pActiveRem = variant(info = printer.info.copy(ams = listOf(ams)), set = arrayOf("d_on" to entity("on"), "d_rem" to entity("2.5"), "d_tgt" to entity("55"), "d_temp" to entity("48"), "d_hi" to entity("2"), "d_h" to entity("20")))
+
+        val cur = androidx.compose.runtime.mutableStateOf(pUnknown)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    androidx.compose.foundation.layout.Column {
+                        AmsHeaderRow(cur.value, ams, detail = false)
+                        AmsHeaderRow(cur.value, ams, detail = true)
+                        AmsDryingSheet(cur.value, ams, onDismiss = {}, err = {})
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Drying status is unavailable", substring = true).assertExists()
+
+        compose.runOnIdle { cur.value = pActiveNoRem }
+        compose.waitForIdle()
+        compose.onNodeWithText("Drying in progress").assertExists()
+
+        compose.runOnIdle { cur.value = pActiveRem }
+        compose.waitForIdle()
+        compose.onNodeWithText("Remaining: 2h 30m").assertExists()
+        compose.onNodeWithText("Chamber temperature").assertExists()
+    }
+
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
         show("Direct LAN connection") { AddDirectScreen() }
         compose.onNodeWithText("Connect",substring=false).assertIsNotEnabled()
