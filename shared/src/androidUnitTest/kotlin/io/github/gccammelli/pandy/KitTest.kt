@@ -73,6 +73,8 @@ class KitTest {
                     Radio(true, "selected") {}; Radio(false, "unselected") {}; Radio(true, "disabled", enabled = false) {}
                     AccentButton("go") {}; AccentButton("modifier", Modifier.padding(1.dp)) {}; AccentButton("off", enabled = false) {}
                     OutlineButton("outline", Color.Red) {}; OutlineButton("outline off", Color.Red, enabled = false) {}; OutlineButton("outline modifier", Color.Red, Modifier.padding(1.dp)) {}
+                    StepButton(Icons.Default.Close, true) {}; StepButton(Icons.Default.Close, false, "disabled") {}
+                    SpoolDot(Color.Red); SpoolDot(Color.Blue, 24.dp, bordered = false)
                     PrinterArt(Modifier.size(80.dp), ams = false, lit = false); PrinterArt(Modifier.size(80.dp), ams = true, lit = true)
                     PrinterArt(Modifier.size(80.dp), ams = true, lit = false, dark = true); PrinterArt(Modifier.size(80.dp), ams = true, lit = true, dark = false, amsColors = listOf(Color.Red, Color.Green))
                     PandaMark(Modifier.size(40.dp))

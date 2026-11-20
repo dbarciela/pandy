@@ -1967,11 +1967,36 @@ class ScreenTest {
         show("Temperature") { TempSheet("Temperature","Test heater",listOf(0,40),0.0,0..50,{}) { set+=it } }
         compose.onNodeWithContentDescription("Decrease temperature").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Increase temperature").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("")
+        compose.onNodeWithContentDescription("Increase temperature").performClick()
         compose.onNode(hasSetTextAction()).performTextReplacement("48")
         compose.onNodeWithContentDescription("Increase temperature").performClick()
         compose.onNodeWithContentDescription("Increase temperature").assertIsNotEnabled()
         compose.onNodeWithText("Done").performClick()
         assertEquals(listOf(50),set)
+    }
+
+    @Test fun dualNozzleWithoutChamberRendersTempChipsOnDevicesAndControl() {
+        val info = printer.info.copy(
+            model = "X2D",
+            ids = printer.info.ids - "sensor.chamber_temp" - "sensor.left_nozzle_temp" - "sensor.right_nozzle_temp"
+        )
+        val p = variant(info = info, set = arrayOf("sensor.print_status" to entity("idle")))
+        val showControl = androidx.compose.runtime.mutableStateOf(false)
+        compose.setContent {
+            CompositionLocalProvider(LocalPlatform provides platform) {
+                AppTheme {
+                    if (showControl.value) ControlScreen(p) else DevicesTab(st.copy(printers = listOf(p)), p)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("L").onFirst().assertExists()
+        compose.onAllNodesWithText("R").onFirst().assertExists()
+        compose.runOnIdle { showControl.value = true }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("L").onFirst().assertExists()
+        compose.onAllNodesWithText("R").onFirst().assertExists()
     }
 
     @Test fun heatedChamberUsesItsOwnTarget() {
