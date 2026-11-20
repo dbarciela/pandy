@@ -589,5 +589,69 @@ class LanBoundaryTest {
         val dualVisible = dualPrinter.visibleExternalSpools()
         assertEquals(1, dualVisible.size)
         assertEquals(1, dualVisible.single().first) // index 1 = External Spool 2
+
+        // Cover all connected_nozzle values, index fallbacks, out-of-range, badges/titles, and isDualNozzleModel
+        assertTrue(isDualNozzleModel("X2D"))
+        assertTrue(isDualNozzleModel("H2C"))
+        assertTrue(isDualNozzleModel("H2D"))
+        assertFalse(isDualNozzleModel("X1C"))
+        assertFalse(dualPrinter.shouldShowExternalSpool(99))
+        assertEquals("Ext 1", dualPrinter.externalBadge(0))
+        assertEquals("Ext 2", dualPrinter.externalBadge(1))
+        assertEquals("External Spool 1 (Left / Main)", dualPrinter.externalTitle(0))
+        assertEquals("External Spool 2 (Right / Aux)", dualPrinter.externalTitle(1))
+        assertEquals("Ext", printerNoAms.externalBadge(0))
+        assertEquals("External Spool", printerNoAms.externalTitle(0))
+
+        val dualRight = Printer(p2Info, mapOf("sensor.ams2_tray_1" to amsSpoolEntity, "sensor.ams2_nozzle" to Entity("sensor.ams2_nozzle", "right", buildJsonObject {}), "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
+        assertTrue(dualRight.nozzleHasAms("right"))
+        assertTrue(dualRight.nozzleHasAms("aux"))
+        assertFalse(dualRight.nozzleHasAms("left"))
+
+        val dualTrack = Printer(p2Info, mapOf("sensor.ams2_tray_1" to amsSpoolEntity, "sensor.ams2_nozzle" to Entity("sensor.ams2_nozzle", "track_switch", buildJsonObject {}), "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
+        assertTrue(dualTrack.nozzleHasAms("left"))
+        assertTrue(dualTrack.nozzleHasAms("right"))
+
+        val dualMain = Printer(p2Info, mapOf("sensor.ams2_tray_1" to amsSpoolEntity, "sensor.ams2_nozzle" to Entity("sensor.ams2_nozzle", "main", buildJsonObject {}), "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
+        assertTrue(dualMain.nozzleHasAms("main"))
+        assertFalse(dualMain.nozzleHasAms("right"))
+
+        val p2FallbackInfo = PrinterInfo("p2", "S2", "X2D", "X2D", null, emptyMap(), listOf(
+            AmsInfo("a1", 1, "AMS", emptyMap(), mapOf(1 to "t1")),
+            AmsInfo("a2", 2, "AMS", emptyMap(), mapOf(1 to "t2")),
+            AmsInfo("a3", 3, "AMS", emptyMap(), mapOf(1 to "t3")),
+        ), listOf("sensor.ext_1", "sensor.ext_2"))
+        val p2Fallback = Printer(p2FallbackInfo, mapOf("t1" to amsSpoolEntity, "t2" to amsSpoolEntity, "t3" to amsSpoolEntity, "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
+        assertTrue(p2Fallback.nozzleHasAms("left"))
+        assertTrue(p2Fallback.nozzleHasAms("main"))
+        assertTrue(p2Fallback.nozzleHasAms("right"))
+        assertTrue(p2Fallback.nozzleHasAms("aux"))
+        assertFalse(p2Fallback.nozzleHasAms("other"))
+
+        val p2SingleAms3 = Printer(p2FallbackInfo.copy(ams = listOf(AmsInfo("a3", 3, "AMS", mapOf("sensor.connected_nozzle" to "missing"), mapOf(1 to "t3")))), mapOf("t3" to amsSpoolEntity))
+        assertFalse(p2SingleAms3.nozzleHasAms("left"))
+        assertNull(p2SingleAms3.amsConnectedNozzle(p2SingleAms3.info.ams.single()))
+
+        // Lan.kt connected_nozzle decoding from info hex nibble and fallback by amsIndex
+        val dualCfg = config.copy(model = "X2D")
+        val hexReport = obj("""{"print":{"ams":{"ams":[
+            {"id":"0","info":"0x000","tray":[]},
+            {"id":"1","info":"0X100","tray":[]},
+            {"id":"2","info":"0xE00","tray":[]}
+        ]}}}""")
+        val hexNozzles = lanEntities(dualCfg, hexReport, true).filter { it.first.key == "connected_nozzle" }.associate { it.first.device to it.second.state }
+        assertEquals("right", hexNozzles["ams0"])
+        assertEquals("left", hexNozzles["ams1"])
+        assertEquals("track_switch", hexNozzles["ams2"])
+
+        val fallbackReport = obj("""{"print":{"ams":{"ams":[
+            {"id":"0","tray":[]},
+            {"id":"1","tray":[]},
+            {"id":"2","tray":[]}
+        ]}}}""")
+        val fallbackNozzles = lanEntities(dualCfg, fallbackReport, true).filter { it.first.key == "connected_nozzle" }.associate { it.first.device to it.second.state }
+        assertEquals("left", fallbackNozzles["ams0"])
+        assertEquals("right", fallbackNozzles["ams1"])
+        assertNull(fallbackNozzles["ams2"])
     }
 }
