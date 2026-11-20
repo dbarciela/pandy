@@ -134,5 +134,20 @@ class JobDetailsTest {
         val idle = printer(status = "idle", progress = 0, remainingMinutes = null, weight = null, length = null)
         val text = buildPrintShareText(idle)
         assertEquals("Print on My X1C: Panda Figurine", text)
+
+        // Blank printer name and missing task fall back cleanly
+        val blankInfo = PrinterInfo("p2", "SN2", "", "A1", null, ids, emptyList(), emptyList())
+        val blankPrinter = Printer(blankInfo, mapOf("s" to Entity("s", "running", JsonObject(emptyMap())), "prog" to Entity("prog", "10", JsonObject(emptyMap()))))
+        val blankText = buildPrintShareText(blankPrinter)
+        assertTrue(blankText.contains("Print on A1: 3D Print"))
+        assertTrue(blankText.contains("• Progress: 10%"))
+
+        // Exercise Repo price getters/setters when Repo.store is not initialized
+        assertNull(Repo.filamentPricePerKg)
+        Repo.setFilamentPricePerKg(20.0)
+        assertEquals("€", Repo.filamentCurrency)
+        Repo.setFilamentCurrency("$")
+        assertNull(Repo.spoolPricePerKg(null))
+        Repo.setSpoolPricePerKg("s1", 20.0)
     }
 }

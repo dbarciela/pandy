@@ -3075,33 +3075,58 @@ class ScreenTest {
     @Test fun jobDetailsLoads3dPreviewFromHistoryCacheAndRoutesFromApp() {
         val model3mf = modelBytes()
         val prevExtras = Repo.extras
+        val historyGate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val meshGate = kotlinx.coroutines.CompletableDeferred<Unit>()
         val fakeExtras = object : HaBackend {
             override val base = "http://fake"
             override suspend fun get(path: String): String = when {
-                path.contains("print_history") -> """{"files":[{"filename":"Articulated Panda Keychain.3mf","path":"SN/prints/Articulated Panda Keychain.3mf","size":${model3mf.size},"modified":"2026-11-17T10:00:00","thumbnail_path":"SN/prints/thumb.png"}]}"""
+                path.contains("print_history") -> {
+                    historyGate.await()
+                    """{"files":[{"filename":"Articulated Panda Keychain.3mf","path":"SN/prints/Articulated Panda Keychain.3mf","size":${model3mf.size},"modified":"2026-11-17T10:00:00","thumbnail_path":"SN/prints/thumb.png"}]}"""
+                }
                 path.endsWith(".slice_info.config") -> """<config><plate><metadata key="index" value="1"/><metadata key="weight" value="42.5"/><metadata key="length" value="12500"/></plate></config>"""
                 else -> "{}"
             }
             override suspend fun post(path: String, body: String) = "[]"
-            override suspend fun bytes(path: String): ByteArray = if (path.endsWith(".3mf")) model3mf else byteArrayOf(1, 2, 3)
+            override suspend fun bytes(path: String): ByteArray {
+                if (path.endsWith(".3mf")) {
+                    meshGate.await()
+                    return model3mf
+                }
+                return byteArrayOf(1, 2, 3)
+            }
             override suspend fun ws(commands: List<kotlinx.serialization.json.JsonObject>) = emptyList<kotlinx.serialization.json.JsonElement?>()
             override suspend fun stream(subscribe: kotlinx.serialization.json.JsonObject, onEvent: (kotlinx.serialization.json.JsonObject) -> Unit) {}
         }
         val extrasField = Repo::class.java.getDeclaredField("extras").apply { isAccessible = true }
         try {
             extrasField.set(Repo, fakeExtras)
-            Nav.stack.clear()
-            Nav.go(Screen.JobDetails)
+            // First check loading indicators while historyGate is pending on a printer with no cover/weight
+            val bareInfo = PrinterInfo("p_bare", "SN", "X1C", "X1C", null, mapOf("sensor.print_status" to "s", "sensor.print_progress" to "p", "sensor.subtask_name" to "t"), emptyList(), emptyList())
+            val barePrinter = Printer(bareInfo, mapOf("s" to entity("running"), "p" to entity("50"), "t" to entity("Articulated Panda Keychain")))
+            val useRoot = androidx.compose.runtime.mutableStateOf(false)
             compose.setContent {
                 CompositionLocalProvider(LocalPlatform provides platform) {
-                    AppTheme { Root() }
+                    AppTheme {
+                        if (useRoot.value) Root() else JobDetailsScreen(barePrinter)
+                    }
                 }
             }
+            compose.waitForIdle()
+            compose.onNodeWithText("Loading model preview...").assertExists()
+            compose.onNodeWithText("Calculating from slice data...").assertExists()
+            compose.onNodeWithText("Calculating...").assertExists()
+
+            historyGate.complete(Unit)
             compose.waitUntil(5000) {
                 compose.waitForIdle()
                 compose.onAllNodesWithText("View 3D").fetchSemanticsNodes().isNotEmpty()
             }
             compose.onNodeWithText("View 3D").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("Loading 3D preview...").assertExists()
+
+            meshGate.complete(Unit)
             compose.waitUntil(5000) {
                 compose.waitForIdle()
                 compose.onAllNodesWithText("3D (Active)").fetchSemanticsNodes().isNotEmpty()
@@ -3109,7 +3134,16 @@ class ScreenTest {
             compose.onNodeWithText("3D (Active)").performClick()
             compose.waitForIdle()
             compose.onNodeWithText("View 3D").assertExists()
+
+            // Also verify App Root() routing to Screen.JobDetails
+            Nav.stack.clear()
+            Nav.go(Screen.JobDetails)
+            compose.runOnIdle { useRoot.value = true }
+            compose.waitForIdle()
+            compose.onNodeWithText("Print Details").assertExists()
         } finally {
+            historyGate.complete(Unit)
+            meshGate.complete(Unit)
             extrasField.set(Repo, prevExtras)
             Nav.stack.clear()
         }
