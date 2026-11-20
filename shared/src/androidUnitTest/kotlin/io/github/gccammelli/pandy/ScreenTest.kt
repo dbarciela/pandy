@@ -2898,13 +2898,14 @@ class ScreenTest {
         val pActiveRem = variant(info = printer.info.copy(ams = listOf(ams)), set = arrayOf("d_on" to entity("on"), "d_rem" to entity("2.5"), "d_tgt" to entity("55"), "d_temp" to entity("48"), "d_hi" to entity("2"), "d_h" to entity("20")))
 
         val cur = androidx.compose.runtime.mutableStateOf(pUnknown)
+        val showSheet = androidx.compose.runtime.mutableStateOf(true)
         compose.setContent {
             CompositionLocalProvider(LocalPlatform provides platform) {
                 AppTheme {
                     androidx.compose.foundation.layout.Column {
                         AmsHeaderRow(cur.value, ams, detail = false)
                         AmsHeaderRow(cur.value, ams, detail = true)
-                        AmsDryingSheet(cur.value, ams, onDismiss = {}, err = {})
+                        if (showSheet.value) AmsDryingSheet(cur.value, ams, onDismiss = { showSheet.value = false }, err = {})
                     }
                 }
             }
@@ -2920,6 +2921,13 @@ class ScreenTest {
         compose.waitForIdle()
         compose.onNodeWithText("Remaining: 2h 30m").assertExists()
         compose.onNodeWithText("Chamber temperature").assertExists()
+        compose.runOnIdle { showSheet.value = false }
+        compose.waitForIdle()
+
+        // Cover Repo.kt callEntity helpers (toggleCamera on/off, load)
+        printer.toggleCamera(true) {}
+        printer.toggleCamera(false) {}
+        printer.ams.firstOrNull()?.second?.firstOrNull()?.let { printer.load(it) {} }
     }
 
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {
