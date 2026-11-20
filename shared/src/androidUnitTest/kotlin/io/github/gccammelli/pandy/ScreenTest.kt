@@ -2955,6 +2955,16 @@ class ScreenTest {
             assertEquals(25.0, Repo.spoolPricePerKg(spool))
             Repo.setSpoolPricePerKg(spool.entityId, 34.5)
             assertEquals(34.5, Repo.spoolPricePerKg(spool))
+            Repo.setSpoolPricePerKg(spool.entityId, 0.0)
+            assertEquals(25.0, Repo.spoolPricePerKg(spool))
+            assertEquals(25.0, Repo.spoolPricePerKg(null))
+            assertEquals(25.0, Repo.spoolPricePerKg(spool.copy(entityId = "")))
+            Repo.setFilamentPricePerKg(-5.0)
+            org.junit.Assert.assertNull(Repo.filamentPricePerKg)
+            Repo.setFilamentCurrency("   ")
+            assertEquals("€", Repo.filamentCurrency)
+            Repo.setFilamentPricePerKg(25.0)
+            Repo.setFilamentCurrency("$")
 
             show("Settings") { SettingsScreen() }
             compose.onNodeWithText("Filament cost").assertExists().performClick()
@@ -3039,6 +3049,49 @@ class ScreenTest {
         } finally {
             Repo.setFilamentPricePerKg(null)
             Repo.setFilamentCurrency(null)
+        }
+    }
+
+    @Test fun jobDetailsLoads3dPreviewFromHistoryCacheAndRoutesFromApp() {
+        val model3mf = modelBytes()
+        val prevExtras = Repo.extras
+        val fakeExtras = object : HaBackend {
+            override val base = "http://fake"
+            override suspend fun get(path: String): String = when {
+                path.contains("print_history") -> """{"files":[{"filename":"Articulated Panda Keychain.3mf","path":"SN/prints/Articulated Panda Keychain.3mf","size":${model3mf.size},"modified":"2026-11-17T10:00:00","thumbnail_path":"SN/prints/thumb.png"}]}"""
+                path.endsWith(".slice_info.config") -> """<config><plate><metadata key="index" value="1"/><metadata key="weight" value="42.5"/><metadata key="length" value="12500"/></plate></config>"""
+                else -> "{}"
+            }
+            override suspend fun post(path: String, body: String) = "[]"
+            override suspend fun bytes(path: String): ByteArray = if (path.endsWith(".3mf")) model3mf else byteArrayOf(1, 2, 3)
+            override suspend fun ws(commands: List<kotlinx.serialization.json.JsonObject>) = emptyList<kotlinx.serialization.json.JsonElement?>()
+            override suspend fun stream(subscribe: kotlinx.serialization.json.JsonObject, onEvent: (kotlinx.serialization.json.JsonObject) -> Unit) {}
+        }
+        val extrasField = Repo::class.java.getDeclaredField("extras").apply { isAccessible = true }
+        try {
+            extrasField.set(Repo, fakeExtras)
+            Nav.stack.clear()
+            Nav.go(Screen.JobDetails)
+            compose.setContent {
+                CompositionLocalProvider(LocalPlatform provides platform) {
+                    AppTheme { Root() }
+                }
+            }
+            compose.waitUntil(5000) {
+                compose.waitForIdle()
+                compose.onAllNodesWithText("View 3D").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("View 3D").performClick()
+            compose.waitUntil(5000) {
+                compose.waitForIdle()
+                compose.onAllNodesWithText("3D (Active)").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("3D (Active)").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("View 3D").assertExists()
+        } finally {
+            extrasField.set(Repo, prevExtras)
+            Nav.stack.clear()
         }
     }
     @Test fun directConnectionValidatesRequiredFieldsAndReportsAMalformedAddress() {

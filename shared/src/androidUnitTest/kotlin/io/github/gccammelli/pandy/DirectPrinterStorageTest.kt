@@ -159,12 +159,15 @@ class DirectPrinterStorageTest {
         }
         val printer = DirectPrinter(LanConfig("192.0.2.1", "TEST", "code", "X1C"), true, { link }, { storage })
         try {
+            assertNull(printer.loadJobMesh())
             printer.printers()
             withTimeout(3000) { while (runCatching { printer.bytes("/api/image_proxy/job") }.getOrNull() == null) delay(10) }
             assertNull(printer.currentMesh)
             val mesh = printer.loadJobMesh()
             assertNotNull(mesh)
             assertEquals(mesh, printer.currentMesh)
+            // Second call returns cached mesh
+            assertEquals(mesh, printer.loadJobMesh())
         } finally { printer.stop() }
     }
 }
