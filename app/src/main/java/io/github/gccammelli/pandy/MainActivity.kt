@@ -175,8 +175,12 @@ open class MainActivity : ComponentActivity(), PlatformUi {
         startActivity(packageManager.getLaunchIntentForPackage(androidPackage) ?: Intent(Intent.ACTION_VIEW, Uri.parse(storeUrl)))
     override fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
+    private var sharing = false
     override fun share(text: String, imageBytes: ByteArray?, title: String?) {
+        if (sharing) return // a second tap while the picture is being written must not open a second chooser
+        sharing = true
         CoroutineScope(Dispatchers.Main).launch {
+          try {
             // The picture is written off the main thread, to a file of its own: the recipient's read grant covers that one URI only.
             val uri = if (imageBytes != null && imageBytes.isNotEmpty()) withContext(Dispatchers.IO) {
                 runCatching {
@@ -201,6 +205,7 @@ open class MainActivity : ComponentActivity(), PlatformUi {
                 }
             }
             startActivity(Intent.createChooser(intent, title ?: "Share print"))
+          } finally { sharing = false }
         }
     }
 
