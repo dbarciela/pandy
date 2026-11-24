@@ -2887,13 +2887,16 @@ class ScreenTest {
     @Test fun unsetExternalSpoolHiddenWhenAmsIsConnectedToMain() {
         val ext1 = entity("Empty", mapOf("type" to "", "empty" to "true", "active" to "false"))
         val ext2 = entity("Generic PETG", mapOf("name" to "Generic PETG", "type" to "PETG", "color" to "#00AE42FF", "empty" to "false", "active" to "false"))
-        val info = printer.info.copy(
+        val base = printer.info
+        val info = base.copy(
             model = "X2D",
+            ams = base.ams.mapIndexed { i, a -> if (i == 0) a.copy(ids = a.ids + ("sensor.connected_nozzle" to "ams_nozzle")) else a },
             external = listOf("sensor.spool_1", "sensor.spool_2")
         )
         val p = variant(info = info, set = arrayOf(
             "sensor.spool_1" to ext1,
-            "sensor.spool_2" to ext2
+            "sensor.spool_2" to ext2,
+            "ams_nozzle" to entity("left")
         ))
 
         val showFilament = androidx.compose.runtime.mutableStateOf(false)

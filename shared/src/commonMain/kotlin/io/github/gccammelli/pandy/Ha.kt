@@ -360,7 +360,7 @@ class Printer(val info: PrinterInfo, private val states: Map<String, Entity>) {
     val speed get() = state("select.printing_speed") ?: state("sensor.speed_profile")
     val nozzle get() = get("sensor.nozzle_temp")?.celsius
     val nozzleTarget get() = get("sensor.target_nozzle_temp")?.celsius
-    val isDualNozzle: Boolean get() = info.ids.containsKey("sensor.left_nozzle_temp") || info.ids.containsKey("sensor.right_nozzle_temp") || model.contains("2D") || model.startsWith("H2C") || model.startsWith("H2D")
+    val isDualNozzle: Boolean get() = info.ids.containsKey("sensor.left_nozzle_temp") || info.ids.containsKey("sensor.right_nozzle_temp") || isDualNozzleModel(model)
     val leftNozzle: Double? get() = get("sensor.left_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle == "left") nozzle else null
     val leftNozzleTarget: Double? get() = get("sensor.left_target_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle == "left") nozzleTarget else null
     val rightNozzle: Double? get() = get("sensor.right_nozzle_temp")?.celsius ?: if (isDualNozzle && activeNozzle != "left") nozzle else null
@@ -694,23 +694,25 @@ fun Printer.externalBadge(index: Int): String = if (external.size > 1) "Ext ${in
 fun Printer.externalTitle(index: Int): String =
     if (external.size > 1) "External Spool ${index + 1} (${if (index == 0) "Left / Main" else "Right / Aux"})" else "External Spool"
 
+/**
+ * Whether an AMS is known to feed the nozzle on [side] ("left" or "right"). Only an explicit left/right (or a track
+ * switch, which reaches both) counts: "main"/"aux" are not tied to a side, and with no reading nothing is assumed, so a
+ * wrong guess can never hide a spool slot. (The LAN decode of the `info` nibble is still unconfirmed on hardware.)
+ */
 fun Printer.nozzleHasAms(side: String): Boolean {
     if (!isDualNozzle) return ams.isNotEmpty()
     return ams.any { (a, _) ->
-        val conn = amsConnectedNozzle(a)?.lowercase()
-        when (conn) {
+        when (amsConnectedNozzle(a)?.lowercase()) {
             "track_switch" -> true
-            "left", "main" -> side.equals("left", ignoreCase = true) || side.equals("main", ignoreCase = true)
-            "right", "aux" -> side.equals("right", ignoreCase = true) || side.equals("aux", ignoreCase = true)
-            else -> if (a.index == 1) (side.equals("left", ignoreCase = true) || side.equals("main", ignoreCase = true))
-                    else if (a.index == 2) (side.equals("right", ignoreCase = true) || side.equals("aux", ignoreCase = true))
-                    else false
+            "left" -> side.equals("left", ignoreCase = true)
+            "right" -> side.equals("right", ignoreCase = true)
+            else -> false
         }
     }
 }
 
 fun Printer.externalSpoolHasAms(index: Int): Boolean {
-    val side = if (isDualNozzle) (if (index == 0) "left" else "right") else "main"
+    val side = if (isDualNozzle) (if (index == 0) "left" else "right") else "left" // single nozzle: any AMS feeds it
     return nozzleHasAms(side)
 }
 

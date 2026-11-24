@@ -605,16 +605,19 @@ class LanBoundaryTest {
 
         val dualRight = Printer(p2Info, mapOf("sensor.ams2_tray_1" to amsSpoolEntity, "sensor.ams2_nozzle" to Entity("sensor.ams2_nozzle", "right", buildJsonObject {}), "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
         assertTrue(dualRight.nozzleHasAms("right"))
-        assertTrue(dualRight.nozzleHasAms("aux"))
         assertFalse(dualRight.nozzleHasAms("left"))
+        assertFalse(dualRight.nozzleHasAms("aux")) // "aux" is not tied to a side
 
         val dualTrack = Printer(p2Info, mapOf("sensor.ams2_tray_1" to amsSpoolEntity, "sensor.ams2_nozzle" to Entity("sensor.ams2_nozzle", "track_switch", buildJsonObject {}), "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
         assertTrue(dualTrack.nozzleHasAms("left"))
         assertTrue(dualTrack.nozzleHasAms("right"))
 
         val dualMain = Printer(p2Info, mapOf("sensor.ams2_tray_1" to amsSpoolEntity, "sensor.ams2_nozzle" to Entity("sensor.ams2_nozzle", "main", buildJsonObject {}), "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
-        assertTrue(dualMain.nozzleHasAms("main"))
+        // "main" does not say which side: nothing is hidden for it
+        assertFalse(dualMain.nozzleHasAms("main"))
+        assertFalse(dualMain.nozzleHasAms("left"))
         assertFalse(dualMain.nozzleHasAms("right"))
+        assertEquals(2, dualMain.visibleExternalSpools().size)
 
         val p2FallbackInfo = PrinterInfo("p2", "S2", "X2D", "X2D", null, emptyMap(), listOf(
             AmsInfo("a1", 1, "AMS", emptyMap(), mapOf(1 to "t1")),
@@ -622,11 +625,11 @@ class LanBoundaryTest {
             AmsInfo("a3", 3, "AMS", emptyMap(), mapOf(1 to "t3")),
         ), listOf("sensor.ext_1", "sensor.ext_2"))
         val p2Fallback = Printer(p2FallbackInfo, mapOf("t1" to amsSpoolEntity, "t2" to amsSpoolEntity, "t3" to amsSpoolEntity, "sensor.ext_1" to emptyExt1, "sensor.ext_2" to emptyExt2))
-        assertTrue(p2Fallback.nozzleHasAms("left"))
-        assertTrue(p2Fallback.nozzleHasAms("main"))
-        assertTrue(p2Fallback.nozzleHasAms("right"))
-        assertTrue(p2Fallback.nozzleHasAms("aux"))
+        // No connected-nozzle reading: no guess from the AMS order, nothing is hidden
+        assertFalse(p2Fallback.nozzleHasAms("left"))
+        assertFalse(p2Fallback.nozzleHasAms("right"))
         assertFalse(p2Fallback.nozzleHasAms("other"))
+        assertEquals(2, p2Fallback.visibleExternalSpools().size)
 
         val p2SingleAms3 = Printer(p2FallbackInfo.copy(ams = listOf(AmsInfo("a3", 3, "AMS", mapOf("sensor.connected_nozzle" to "missing"), mapOf(1 to "t3")))), mapOf("t3" to amsSpoolEntity))
         assertFalse(p2SingleAms3.nozzleHasAms("left"))
