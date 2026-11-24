@@ -166,6 +166,16 @@ class PrintersFromTest {
         assertNull(printer.ids["sensor.nouid"])
     }
 
+    @Test fun entityPictureThatIsNotAnImageProxyPathIsIgnored() {
+        // The path is fetched with the HA bearer token, so it must stay on the HA server.
+        val info = PrinterInfo("p", "SN", "X1C", "X1C", null, mapOf("image.cover_image" to "img.cover"), emptyList(), emptyList())
+        for (bad in listOf("@evil.example/x", "//evil.example/api/image_proxy/x", "https://evil.example/api/image_proxy/x",
+            "/api/image_proxy/@evil.example/x", "/api/image_proxy/../states", "/other/path", "/api/image_proxy/a\\b")) {
+            val e = Entity("img.cover", "v1", JsonObject(mapOf("entity_picture" to kotlinx.serialization.json.JsonPrimitive(bad))))
+            assertEquals("/api/image_proxy/img.cover?v=v1", Printer(info, mapOf("img.cover" to e)).coverImage, bad)
+        }
+    }
+
     @Test fun pickImageDoesNotFallBackToGenericCoverImage() {
         val infoGeneric = PrinterInfo("p", "SN", "X1C", "X1C", null, mapOf("image.image" to "img.cover"), emptyList(), emptyList())
         val ok = Entity("img.cover", "2026-11-17T00:00:00", JsonObject(emptyMap()))

@@ -589,8 +589,11 @@ class DirectPrinter(
                 else { add("$g.3mf"); add("$g.gcode.3mf") }
             }
         }
-        val dirs = listOf("/cache/" to listCached("/cache"), "/" to listCached("/"))
-        for (n in names) for ((d, files) in dirs) files.firstOrNull { it.name.equals(n, ignoreCase = true) }?.let { return d + it.name to it.size }
+        val dirs = listOf("/cache/" to listCachedOrMissing("/cache"), "/" to listCached("/"))
+        // An exact-case name wins over a case-insensitive one, and an earlier variant over a later one: a printer holding
+        // both "Part.3mf" and "part.3mf" must give the file the print was started from (its object ids feed Skip Parts).
+        for (exact in listOf(true, false)) for (n in names) for ((d, files) in dirs)
+            files.firstOrNull { if (exact) it.name == n else it.name.equals(n, ignoreCase = true) }?.let { return d + it.name to it.size }
         if (task.isEmpty()) dirs.flatMap { (d, f) -> f.filter { it.name.endsWith(".3mf", ignoreCase = true) }.map { d + it.name to it } }.maxByOrNull { it.second.modified }?.let { return it.first to it.second.size }
         return null
     }
@@ -598,7 +601,7 @@ class DirectPrinter(
     /** Print files on the printer, as the integration's print_history API lists cached prints (newest first). */
     private suspend fun historyJson(): String {
         listings.clear() // a fresh look when the list is opened
-        val files = listOf("" to listCached("/"), "cache/" to listCached("/cache")).flatMap { (d, l) -> l.filter { !it.dir && it.name.endsWith(".3mf") }.map { d to it } }
+        val files = listOf("" to listCached("/"), "cache/" to listCachedOrMissing("/cache")).flatMap { (d, l) -> l.filter { !it.dir && it.name.endsWith(".3mf") }.map { d to it } }
             .sortedByDescending { it.second.modified }
         return buildJsonObject {
             putJsonArray("files") {
@@ -643,8 +646,15 @@ class DirectPrinter(
     private suspend fun listCached(dir: String): List<FileEntry> {
         val now = Clock.System.now().toEpochMilliseconds()
         listings[dir]?.takeIf { now - it.first < 30_000 }?.let { return it.second }
-        return runCatching { storage.list(dir) }.getOrDefault(emptyList()).also { listings[dir] = now to it }
+        return storage.list(dir).also { listings[dir] = now to it } // a failure is not cached and not hidden: it must not look like an empty folder
     }
+
+    /** The printer's `/cache` folder does not exist until it has cached a print: that (550) is an empty list, nothing else is. */
+    private suspend fun listCachedOrMissing(dir: String): List<FileEntry> =
+        try { listCached(dir) } catch (e: PrinterStorageException) {
+            if (e.code != 550) throw e
+            emptyList<FileEntry>().also { listings[dir] = Clock.System.now().toEpochMilliseconds() to it }
+        }
 
     private suspend fun sizeOf(path: String) =
         listCached(path.substringBeforeLast('/').ifEmpty { "/" }).firstOrNull { it.name == path.substringAfterLast('/') }?.size

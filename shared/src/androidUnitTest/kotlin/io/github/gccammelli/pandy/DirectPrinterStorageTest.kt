@@ -131,6 +131,30 @@ class DirectPrinterStorageTest {
         } finally { printer.stop() }
     }
 
+    @Test fun aPrinterThatCouldNotBeReachedAtFirstIsUsedOnceItAnswers() = runBlocking<Unit> {
+        // The first attempt fails (the printer busy or out of connection slots); the next one gets through. The app
+        // must not stay "offline" until it is restarted.
+        var attempts = 0
+        val printer = DirectPrinter(LanConfig("192.0.2.1", "TEST", "code", "X1C"), true, {
+            object : LanLink {
+                override suspend fun run(onConnected: () -> Unit, onMessage: (String) -> Unit) {
+                    if (++attempts == 1) throw java.io.IOException("Connection refused")
+                    onConnected()
+                    onMessage("""{"print":{"command":"push_status","gcode_state":"IDLE"}}""")
+                    awaitCancellation()
+                }
+                override fun publish(payload: String) = Unit
+                override fun close() = Unit
+            }
+        }, { error("no storage") })
+        try {
+            assertFailsWith<ApiException> { printer.printers() }
+            withTimeout(10_000) { while (runCatching { printer.printers() }.isFailure) delay(200) }
+            assertEquals("TEST", printer.printers().single().serial)
+            assertTrue(attempts >= 2)
+        } finally { printer.stop() }
+    }
+
     @Test fun checkJobToleratesNonPrintMessagesAndMissingFtpsFolders() = runBlocking<Unit> {
         val archive = java.io.ByteArrayOutputStream().apply {
             java.util.zip.ZipOutputStream(this).use { z ->
@@ -166,27 +190,57 @@ class DirectPrinterStorageTest {
         } finally { printer.stop() }
     }
 
-    @Test fun aPrinterThatCouldNotBeReachedAtFirstIsUsedOnceItAnswers() = runBlocking<Unit> {
-        // The first attempt fails (the printer busy or out of connection slots); the next one gets through. The app
-        // must not stay "offline" until it is restarted.
-        var attempts = 0
-        val printer = DirectPrinter(LanConfig("192.0.2.1", "TEST", "code", "X1C"), true, {
-            object : LanLink {
-                override suspend fun run(onConnected: () -> Unit, onMessage: (String) -> Unit) {
-                    if (++attempts == 1) throw java.io.IOException("Connection refused")
-                    onConnected()
-                    onMessage("""{"print":{"command":"push_status","gcode_state":"IDLE"}}""")
-                    awaitCancellation()
-                }
-                override fun publish(payload: String) = Unit
-                override fun close() = Unit
+    private fun runningLink(task: String) = object : LanLink {
+        override suspend fun run(onConnected: () -> Unit, onMessage: (String) -> Unit) {
+            onConnected()
+            onMessage("""{"print":{"command":"push_status","subtask_name":"$task","gcode_state":"RUNNING"}}""")
+            awaitCancellation()
+        }
+        override fun publish(payload: String) = Unit
+        override fun close() = Unit
+    }
+
+    private fun zipOf(marker: Byte) = ByteArrayOutputStream().apply {
+        ZipOutputStream(this).use { z -> z.putNextEntry(ZipEntry("Metadata/plate_1.png")); z.write(byteArrayOf(marker)); z.closeEntry() }
+    }.toByteArray()
+
+    @Test fun jobFileKeepsTheExactNameWhenSimilarOnesExist() = runBlocking<Unit> {
+        // "my_model.3mf" and "My Model.3mf" are other prints: only the file named like the job may supply its cover.
+        val files = mapOf("/cache/My Model.3MF" to zipOf(1), "/cache/my model.3mf" to zipOf(2), "/cache/my_model.3mf" to zipOf(3))
+        val storage = object : PrinterStorage {
+            override suspend fun list(dir: String) = files.filterKeys { it.substringBeforeLast('/') == dir }
+                .map { (p, b) -> FileEntry(p.substringAfterLast('/'), b.size.toLong(), "2026-11-17 01:02", false) }
+            override suspend fun read(path: String, offset: Long, length: Int): ByteArray {
+                val b = files.getValue(path); return b.copyOfRange(offset.toInt(), if (length < 0) b.size else minOf(b.size, offset.toInt() + length))
             }
-        }, { error("no storage") })
+            override suspend fun write(path: String, data: ByteArray, progress: (Float) -> Unit) = Unit
+        }
+        val printer = DirectPrinter(LanConfig("192.0.2.1", "TEST", "code", "X1C"), true, { runningLink("my model") }, { storage })
         try {
-            assertFailsWith<ApiException> { printer.printers() }
-            withTimeout(10_000) { while (runCatching { printer.printers() }.isFailure) delay(200) }
-            assertEquals("TEST", printer.printers().single().serial)
-            assertTrue(attempts >= 2)
+            printer.printers()
+            withTimeout(3000) { while (runCatching { printer.bytes("/api/image_proxy/job") }.getOrNull() == null) delay(10) }
+            assertContentEquals(byteArrayOf(2), printer.bytes("/api/image_proxy/job"))
+        } finally { printer.stop() }
+    }
+
+    @Test fun aFailingListingIsNotReadAsAnEmptyPrinter() = runBlocking<Unit> {
+        // A wrong access code or an FTPS outage must surface, not look like "no prints" and be remembered for 30 s.
+        var down = true
+        val bytes = zipOf(9)
+        val storage = object : PrinterStorage {
+            override suspend fun list(dir: String): List<FileEntry> {
+                if (down) throw PrinterStorageException(530, "Login incorrect")
+                return if (dir == "/cache") emptyList() else listOf(FileEntry("a.3mf", bytes.size.toLong(), "2026-11-17 01:02", false))
+            }
+            override suspend fun read(path: String, offset: Long, length: Int) = bytes
+            override suspend fun write(path: String, data: ByteArray, progress: (Float) -> Unit) = Unit
+        }
+        val printer = DirectPrinter(LanConfig("192.0.2.1", "TEST", "code", "X1C"), true, { runningLink("") }, { storage })
+        try {
+            printer.printers()
+            assertFails { printer.get("/api/bambu_lab/print_history") }
+            down = false
+            assertTrue(printer.get("/api/bambu_lab/print_history").contains("a.3mf")) // the failure was not cached
         } finally { printer.stop() }
     }
 }
