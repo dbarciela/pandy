@@ -180,10 +180,10 @@ fun OutlineButton(text: String, color: Color, modifier: Modifier = Modifier, ena
         T(text, 16.sp, if (enabled) color else C.Sub)
     }
 
-/** Stepper button (+ / −) used for discrete increments (fans, temperatures, drying). */
+/** Stepper button (+ / −) used for discrete increments (fans, temperatures, drying). [background] must differ from the surface it sits on (a sheet is C.Card, so use C.Fill there). */
 @Composable
-fun StepButton(icon: ImageVector, enabled: Boolean, desc: String? = null, onClick: () -> Unit) =
-    Box(Modifier.size(44.dp, 36.dp).clip(RoundedCornerShape(6.dp)).background(C.Card).clickable(enabled = enabled, onClickLabel = desc, onClick = onClick), contentAlignment = Alignment.Center) {
+fun StepButton(icon: ImageVector, enabled: Boolean, desc: String? = null, background: Color = C.Card, onClick: () -> Unit) =
+    Box(Modifier.size(44.dp, 36.dp).clip(RoundedCornerShape(6.dp)).background(background).clickable(enabled = enabled, onClickLabel = desc, onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, desc, Modifier.size(18.dp), tint = if (enabled) C.Text else C.Faint)
     }
 

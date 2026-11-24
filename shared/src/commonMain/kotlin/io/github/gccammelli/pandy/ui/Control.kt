@@ -253,10 +253,10 @@ fun TempSheet(title: String, hint: String, presets: List<Int>, current: Double?,
     fun done() { text.toIntOrNull()?.let { set(it.coerceIn(range)) }; close() }
     Sheet(close, title, centeredTitle = true, confirm = null) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val curVal = text.toIntOrNull() ?: range.first
-            StepButton(Icons.Default.Remove, enabled = curVal > range.first, desc = "Decrease temperature") {
-                val newVal = (curVal - 5).coerceAtLeast(range.first)
-                setText(if (newVal == 0 && range.first == 0) "0" else "$newVal")
+            // A typed value outside the range (999) steps from the nearest limit; an empty field steps from the lowest value.
+            val curVal = (text.toIntOrNull() ?: range.first).coerceIn(range)
+            StepButton(Icons.Default.Remove, enabled = curVal > range.first, desc = "Decrease temperature", background = C.Fill) {
+                setText("${(curVal - 5).coerceAtLeast(range.first)}")
             }
             Spacer(Modifier.width(8.dp))
             OutlinedTextField(field, { t -> field = t.copy(text = t.text.filter { it.isDigit() }.take(3)) }, Modifier.weight(1f).focusRequester(focus), singleLine = true,
@@ -265,9 +265,8 @@ fun TempSheet(title: String, hint: String, presets: List<Int>, current: Double?,
                 keyboardActions = KeyboardActions(onDone = { done() }),
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = C.Fill, focusedContainerColor = C.Fill, unfocusedBorderColor = Color.Transparent, focusedBorderColor = C.Accent))
             Spacer(Modifier.width(8.dp))
-            StepButton(Icons.Default.Add, enabled = curVal < range.last, desc = "Increase temperature") {
-                val newVal = (curVal + 5).coerceAtMost(range.last)
-                setText("$newVal")
+            StepButton(Icons.Default.Add, enabled = curVal < range.last, desc = "Increase temperature", background = C.Fill) {
+                setText("${(curVal + 5).coerceAtMost(range.last)}")
             }
         }
         Gap(16.dp)

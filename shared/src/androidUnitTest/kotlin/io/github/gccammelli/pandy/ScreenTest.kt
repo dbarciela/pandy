@@ -1962,6 +1962,16 @@ class ScreenTest {
         assertEquals(1,closed)
     }
 
+    @Test fun temperatureEntryStepsFromTheNearestLimitWhenTheTypedValueIsOutOfRange() {
+        val set=mutableListOf<Int>()
+        show("Temperature") { TempSheet("Temperature","Test heater",listOf(40),215.0,0..300,{}) { set+=it } }
+        compose.onNode(hasSetTextAction()).performTextReplacement("999")
+        compose.onNodeWithContentDescription("Increase temperature").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Decrease temperature").performClick()
+        compose.onNodeWithText("Done").performClick()
+        assertEquals(listOf(295),set)
+    }
+
     @Test fun temperatureEntrySteppersClampToRangeLimits() {
         val set=mutableListOf<Int>()
         show("Temperature") { TempSheet("Temperature","Test heater",listOf(0,40),0.0,0..50,{}) { set+=it } }
@@ -2014,8 +2024,14 @@ class ScreenTest {
         for (p in listOf(noChamberDualRight, noChamberDualLeft, withChamberDual, noChamberSingle)) {
             compose.runOnIdle { current.value = p; showControl.value = false }
             compose.waitForIdle()
+            val dual = p.isDualNozzle
+            // L/R labels exist only for a dual nozzle, on the Devices card and again on the Control screen.
+            assertEquals(dual, compose.onAllNodesWithText("L").fetchSemanticsNodes().isNotEmpty())
+            assertEquals(dual, compose.onAllNodesWithText("R").fetchSemanticsNodes().isNotEmpty())
             compose.runOnIdle { showControl.value = true }
             compose.waitForIdle()
+            assertEquals(dual, compose.onAllNodesWithText("L").fetchSemanticsNodes().isNotEmpty())
+            assertEquals(dual, compose.onAllNodesWithText("R").fetchSemanticsNodes().isNotEmpty())
         }
     }
 
