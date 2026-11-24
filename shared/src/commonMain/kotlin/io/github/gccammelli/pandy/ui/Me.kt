@@ -122,6 +122,7 @@ private fun ShortcutContent(icon: ImageVector, label: String) =
 fun HistoryScreen(p: Printer) {
     val pl = LocalPlatform.current
     val scope = rememberCoroutineScope()
+    val sharing = remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     val files by produceState<Result<List<CachedFile>>?>(null, p.serial, reload) { value = runCatching { needHa().printHistory(p.serial) } }
     var open by remember { mutableStateOf<CachedFile?>(null) }
@@ -133,7 +134,7 @@ fun HistoryScreen(p: Printer) {
                 else androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(list.size, key = { list[it].path }) { i ->
                         val item = list[i]
-                        HistoryRow(item, onShare = { shareHistoryItem(scope, pl, p, item) }) { open = item }
+                        HistoryRow(item, onShare = { shareHistoryItem(scope, pl, p, item, sharing) }) { open = item }
                     }
                 }
             }, { e -> if (Repo.extras == null) NeedsHa("Printing history") else Empty(e.message ?: "Couldn't load the history") })
@@ -142,18 +143,24 @@ fun HistoryScreen(p: Printer) {
     open?.let { f -> ReprintSheet(p, f) { open = null } }
 }
 
+/** Fetches the thumbnail and opens the share sheet; [busy] ignores further taps until the sheet is up (a double tap would open two). */
 private fun shareHistoryItem(
     scope: kotlinx.coroutines.CoroutineScope,
     pl: io.github.gccammelli.pandy.PlatformUi,
     p: Printer,
     f: CachedFile,
+    busy: androidx.compose.runtime.MutableState<Boolean>,
     plate: Int? = null
 ) {
+    if (busy.value) return
+    busy.value = true
     scope.launch {
-        val bytes = f.thumbUrl?.let { url -> runCatching { Repo.ha?.bytes(url) }.getOrNull() }
-        val plateLine = if (plate != null) "\n• Plate $plate" else ""
-        val text = "Print from ${p.name}:\n• ${f.title}$plateLine\n• Date: ${f.modified.take(16).replace('T', ' ')}"
-        pl.share(text, bytes, f.title)
+        try {
+            val bytes = f.thumbUrl?.let { url -> runCatching { Repo.ha?.bytes(url) }.getOrNull() }
+            val plateLine = if (plate != null) "\n• Plate $plate" else ""
+            val text = "Print from ${p.name}:\n• ${f.title}$plateLine\n• Date: ${f.modified.take(16).replace('T', ' ')}"
+            pl.share(text, bytes, f.title)
+        } finally { busy.value = false }
     }
 }
 
@@ -212,8 +219,9 @@ fun ReprintSheet(p: Printer, f: CachedFile, close: () -> Unit) {
             Column(Modifier.weight(1f)) { T(f.title, 15.sp, weight = FontWeight.Medium, maxLines = 2); T("Plate ${info?.plate ?: 1}", 12.sp, C.Sub) }
             val pl = LocalPlatform.current
             val scope = rememberCoroutineScope()
+            val sharing = remember { mutableStateOf(false) }
             Box(Modifier.size(40.dp).clip(CircleShape).clickable {
-                shareHistoryItem(scope, pl, p, f, plate = info?.plate ?: 1)
+                shareHistoryItem(scope, pl, p, f, sharing, plate = info?.plate ?: 1)
             }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Share, "Share", tint = C.Text, modifier = Modifier.size(20.dp))
             }

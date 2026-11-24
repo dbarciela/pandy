@@ -116,45 +116,22 @@ class NotifyTest {
     }
 
     @Test
-    fun finishAndFailurePreferCameraSnapshotWithCoverFallback() {
+    fun notificationsUseTheCoverNeverALiveCameraFrame() {
         val withCamIds = ids + ("camera.camera" to "cam") + ("image.cover_image" to "cov")
-        val withCamStates = mapOf(
+        val states = mapOf(
             "s" to Entity("s", "finish", JsonObject(emptyMap())),
             "t" to Entity("t", "Benchy", JsonObject(emptyMap())),
             "cam" to Entity("cam", "streaming", JsonObject(emptyMap())),
             "cov" to Entity("cov", "v1", JsonObject(emptyMap()))
         )
-        val runningWithCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()),
-            withCamStates + ("s" to Entity("s", "running", JsonObject(emptyMap()))))
-        val finishedWithCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()), withCamStates)
-
-        val ev = printEvent(runningWithCam, finishedWithCam)!!
-        assertEquals("/api/camera_proxy/cam", ev.imagePath)
-        assertEquals("/api/image_proxy/cov?v=v1", ev.fallbackImagePath)
-
-        // Without camera, falls back directly to coverImage as primary and null fallback
-        val noCamIds = ids + ("image.cover_image" to "cov")
-        val runningNoCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, noCamIds, emptyList(), emptyList()),
-            withCamStates + ("s" to Entity("s", "running", JsonObject(emptyMap()))) - "cam")
-        val finishedNoCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, noCamIds, emptyList(), emptyList()),
-            withCamStates - "cam")
-
-        val evNoCam = printEvent(runningNoCam, finishedNoCam)!!
-        assertEquals("/api/image_proxy/cov?v=v1", evNoCam.imagePath)
-        assertNull(evNoCam.fallbackImagePath)
-
-        // Failed & attention events also prefer camera with cover fallback
-        val failedWithCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()),
-            withCamStates + ("s" to Entity("s", "failed", JsonObject(emptyMap()))))
-        val evFailedCam = printEvent(runningWithCam, failedWithCam)!!
-        assertEquals("/api/camera_proxy/cam", evFailedCam.imagePath)
-        assertEquals("/api/image_proxy/cov?v=v1", evFailedCam.fallbackImagePath)
-
+        fun p(status: String) = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()), states + ("s" to Entity("s", status, JsonObject(emptyMap()))))
+        for (end in listOf("finish", "failed")) {
+            val ev = printEvent(p("running"), p(end))!!
+            assertEquals("/api/image_proxy/cov?v=v1", ev.imagePath)
+        }
         val hmsAttrs = json.parseToJsonElement("""{"Count":"1","1-Code":"HMS_0300_0100_0002_0007","1-Error":"Problem 1"}""") as JsonObject
-        val attWithCam = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()),
-            withCamStates + ("s" to Entity("s", "pause", JsonObject(emptyMap()))) + ("h" to Entity("h", "on", hmsAttrs)))
-        val evAttCam = printEvent(runningWithCam, attWithCam)!!
-        assertEquals("/api/camera_proxy/cam", evAttCam.imagePath)
-        assertEquals("/api/image_proxy/cov?v=v1", evAttCam.fallbackImagePath)
+        val att = Printer(PrinterInfo("p", "SN", "X1C", "X1C", null, withCamIds, emptyList(), emptyList()),
+            states + ("s" to Entity("s", "pause", JsonObject(emptyMap()))) + ("h" to Entity("h", "on", hmsAttrs)))
+        assertEquals("/api/image_proxy/cov?v=v1", printEvent(p("running"), att)!!.imagePath)
     }
 }

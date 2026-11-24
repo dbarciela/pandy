@@ -153,20 +153,17 @@ class AndroidNotifier(private val ctx: Context) : Notifier {
         nm.notify(notifId, builder.build())
 
         val imgPath = event.imagePath
-        val fallbackPath = event.fallbackImagePath
-        if (imgPath != null || fallbackPath != null) {
+        if (imgPath != null) {
             CoroutineScope(Dispatchers.IO).launch {
-                suspend fun load(path: String?): Bitmap? {
-                    if (path == null) return null
-                    val bytes = runCatching { Repo.ha?.bytes(path) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
-                    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                }
-                val bitmap = load(imgPath) ?: load(fallbackPath)
-                if (bitmap != null && nm.activeNotifications.any { it.id == notifId }) {
-                    builder.setOnlyAlertOnce(true) // adding the picture must not alert again
-                    builder.setLargeIcon(bitmap)
-                    builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap).bigLargeIcon(null as Bitmap?))
-                    nm.notify(notifId, builder.build())
+                val bytes = runCatching { Repo.ha?.bytes(imgPath) }.getOrNull()
+                if (bytes != null) {
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bitmap != null && nm.activeNotifications.any { it.id == notifId }) {
+                        builder.setOnlyAlertOnce(true) // adding the picture must not alert again
+                        builder.setLargeIcon(bitmap)
+                        builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap).bigLargeIcon(null as Bitmap?))
+                        nm.notify(notifId, builder.build())
+                    }
                 }
             }
         }

@@ -176,30 +176,32 @@ open class MainActivity : ComponentActivity(), PlatformUi {
     override fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun share(text: String, imageBytes: ByteArray?, title: String?) {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            putExtra(Intent.EXTRA_TEXT, text)
-            if (title != null) putExtra(Intent.EXTRA_SUBJECT, title)
-            val isPng = imageBytes != null && imageBytes.size >= 4 && imageBytes[0] == 0x89.toByte() && imageBytes[1] == 0x50.toByte()
-            val mime = if (isPng) "image/png" else "image/jpeg"
-            val ext = if (isPng) "png" else "jpg"
-            val uri = if (imageBytes != null && imageBytes.isNotEmpty()) {
+        CoroutineScope(Dispatchers.Main).launch {
+            // The picture is written off the main thread, to a file of its own: the recipient's read grant covers that one URI only.
+            val uri = if (imageBytes != null && imageBytes.isNotEmpty()) withContext(Dispatchers.IO) {
                 runCatching {
+                    val ext = if (imageBytes.size >= 4 && imageBytes[0] == 0x89.toByte() && imageBytes[1] == 0x50.toByte()) "png" else "jpg"
                     val dir = java.io.File(cacheDir, "shared_images").apply { mkdirs() }
-                    dir.listFiles()?.forEach { it.delete() }
-                    val file = java.io.File(dir, "pandy_share.$ext").apply { writeBytes(imageBytes) }
-                    androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.slicerfiles", file)
+                    val cutoff = System.currentTimeMillis() - 60 * 60 * 1000
+                    dir.listFiles()?.forEach { if (it.lastModified() < cutoff) it.delete() } // old shares only: a recipient may still be reading a recent one
+                    val file = java.io.File(dir, "pandy_share_${java.util.UUID.randomUUID()}.$ext").apply { writeBytes(imageBytes) }
+                    androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.slicerfiles", file) to ext
                 }.getOrNull()
             } else null
-            if (uri != null) {
-                type = mime
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = android.content.ClipData.newRawUri(title ?: "Share print", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } else {
-                type = "text/plain"
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                putExtra(Intent.EXTRA_TEXT, text)
+                if (title != null) putExtra(Intent.EXTRA_SUBJECT, title)
+                if (uri != null) {
+                    type = if (uri.second == "png") "image/png" else "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, uri.first)
+                    clipData = android.content.ClipData.newRawUri(title ?: "Share print", uri.first)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } else {
+                    type = "text/plain"
+                }
             }
+            startActivity(Intent.createChooser(intent, title ?: "Share print"))
         }
-        startActivity(Intent.createChooser(intent, title ?: "Share print"))
     }
 
     override fun pickImage(done: (ByteArray?) -> Unit) {

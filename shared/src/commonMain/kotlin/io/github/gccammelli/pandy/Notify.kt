@@ -28,15 +28,13 @@ class PrintEvent(
     val type: PrintEventType = PrintEventType.ATTENTION,
     val actions: List<PrintAction> = emptyList(),
     val serial: String? = null,
-    val imagePath: String? = null,
-    val fallbackImagePath: String? = null
+    val imagePath: String? = null
 )
 
 /** What changed on one printer between two readings that the user wants to hear about, if anything. [before] null: first reading, so nothing to compare. */
 fun printEvent(before: Printer?, now: Printer): PrintEvent? {
     if (before == null) return null
     val job = now.task ?: before.task ?: "The print"
-    val cameraSnap = now.camera?.let { "/api/camera_proxy/$it" }
     if (before.printing && now.status == "finish") {
         return PrintEvent(
             title = "Print finished",
@@ -44,8 +42,7 @@ fun printEvent(before: Printer?, now: Printer): PrintEvent? {
             type = PrintEventType.FINISH,
             actions = listOf(PrintAction.SHARE),
             serial = now.serial,
-            imagePath = cameraSnap ?: now.coverImage,
-            fallbackImagePath = if (cameraSnap != null) now.coverImage else null
+            imagePath = now.coverImage
         )
     }
     if (before.printing && now.status == "failed") {
@@ -54,8 +51,7 @@ fun printEvent(before: Printer?, now: Printer): PrintEvent? {
             text = "${now.printError ?: job} (${now.name})",
             type = PrintEventType.FAILED,
             serial = now.serial,
-            imagePath = cameraSnap ?: now.coverImage,
-            fallbackImagePath = if (cameraSnap != null) now.coverImage else null
+            imagePath = now.coverImage
         )
     }
     // Routine notices ("Inspecting the first layer: please wait a moment") only matter when they stop the print.
@@ -67,8 +63,7 @@ fun printEvent(before: Printer?, now: Printer): PrintEvent? {
         type = PrintEventType.ATTENTION,
         actions = actions,
         serial = now.serial,
-        imagePath = cameraSnap ?: now.coverImage,
-        fallbackImagePath = if (cameraSnap != null) now.coverImage else null
+        imagePath = now.coverImage
     )
 }
 
